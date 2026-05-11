@@ -557,6 +557,7 @@ GameObject:
   - component: {fileID: 1808661376}
   - component: {fileID: 1808661375}
   - component: {fileID: 1808661374}
+  - component: {fileID: 1808661378}
   m_Layer: 0
   m_Name: Board
   m_TagString: Untagged
@@ -658,6 +659,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1808661378
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1808661373}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 646e2c76f72ede2499dae5db0e3d36fd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CardsSpawner
+  cardPrefab: {fileID: 5257244995282828516, guid: 9c52939896e51e3478ceb970008593fa, type: 3}
+  spacingX: 2
+  spacingZ: 3
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
