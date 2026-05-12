@@ -1,70 +1,100 @@
-// Necesitamos esto para usar las clases de Unity como MonoBehaviour, Vector3, etc.
 using UnityEngine;
 
-// CardsSpawner es un componente que se puede adjuntar a cualquier GameObject en la escena.
-// MonoBehaviour es la clase base de todos los scripts de Unity.
 public class CardsSpawner : MonoBehaviour
 {
-    // [SerializeField] hace que una variable privada aparezca en el Inspector de Unity,
-    // así podés asignarla arrastrando un asset sin necesidad de hacerla pública.
+    [Header("Referencias")]
+    [SerializeField] public GameObject cardPrefab;
+    [SerializeField] public LevelData levelData;
+    [SerializeField] public Transform boardTransform;
 
-    // El prefab de la carta que vamos a instanciar (crear copias en la escena).
-    [SerializeField] private GameObject cardPrefab;
+    [Header("Layout")]
+    [Tooltip("Tamaño de cada slot en unidades del mundo")]
+    [SerializeField] public float slotSize = 4f;
+    [Tooltip("Espaciado entre centros de las 4 cartas dentro de un slot")]
+    [SerializeField] public float cardSpacing = 1.2f;
+    [Tooltip("Margen alrededor del grid en el Board")]
+    [SerializeField] public float margin = 1f;
 
-    // Separación entre cartas en el eje X (horizontal).
-    [SerializeField] private float spacingX = 2f;
-
-    // Separación entre cartas en el eje Z (profundidad, hacia/desde la cámara en 3D).
-    [SerializeField] private float spacingZ = 3f;
-
-    // Start() es un método especial de Unity. Se ejecuta una sola vez,
-    // justo antes del primer frame cuando el objeto se activa en la escena.
-    void Start()
+    // Las 4 posiciones relativas de las cartas dentro de un slot (escala por cardSpacing)
+    private static readonly Vector2[] Offsets =
     {
-        // Llamamos al método que genera el grid de cartas.
-        SpawnGrid();
-    }
+        new Vector2(-0.5f,  0.5f),   // arriba-izquierda
+        new Vector2( 0.5f,  0.5f),   // arriba-derecha
+        new Vector2(-0.5f, -0.5f),   // abajo-izquierda
+        new Vector2( 0.5f, -0.5f),   // abajo-derecha
+    };
 
-    // Este método crea las 9 cartas organizadas en una grilla 3x3.
-    void SpawnGrid()
+    public void SpawnCards()
     {
-        // Cantidad de columnas y filas del grid.
-        int cols = 3;
-        int rows = 3;
+        ClearCards();
+        if (levelData == null || cardPrefab == null || levelData.cells == null || levelData.cells.Count == 0)
+            return;
 
-        // Calculamos el ancho y la profundidad total del grid.
-        // Usamos (cols - 1) porque entre 3 columnas hay 2 espacios, no 3.
-        // Ejemplo con spacingX=2: totalWidth = 2 * 2 = 4 unidades de ancho total.
-        float totalWidth = (cols - 1) * spacingX;
-        float totalDepth = (rows - 1) * spacingZ;
-
-        // Recorremos cada fila del grid (0, 1, 2).
-        for (int row = 0; row < rows; row++)
+        // Bounding box del nivel en coordenadas de grilla
+        int minX = int.MaxValue, maxX = int.MinValue;
+        int minY = int.MaxValue, maxY = int.MinValue;
+        foreach (var cell in levelData.cells)
         {
-            // Dentro de cada fila, recorremos cada columna (0, 1, 2).
-            for (int col = 0; col < cols; col++)
+            if (cell.x < minX) minX = cell.x;
+            if (cell.x > maxX) maxX = cell.x;
+            if (cell.y < minY) minY = cell.y;
+            if (cell.y > maxY) maxY = cell.y;
+        }
+
+        float gridW = (maxX - minX + 1) * slotSize;
+        float gridH = (maxY - minY + 1) * slotSize;
+
+        // Centro del nivel en coordenadas del mundo (relativo a este transform)
+        float centerX = (minX + maxX) * 0.5f * slotSize;
+        float centerZ = (minY + maxY) * 0.5f * slotSize;
+
+        // Escalar y reposicionar el Board para que contenga el grid + margen
+        if (boardTransform != null)
+        {
+            Vector3 s = boardTransform.localScale;
+            s.x = gridW + margin * 2f;
+            s.z = gridH + margin * 2f;
+            boardTransform.localScale = s;
+
+            Vector3 p = boardTransform.position;
+            p.x = transform.position.x + centerX;
+            p.z = transform.position.z + centerZ;
+            boardTransform.position = p;
+        }
+
+        // Instanciar 4 cartas por cada celda pintada
+        foreach (var cell in levelData.cells)
+        {
+            Color color = new Color(cell.r, cell.g, cell.b, 1f);
+
+            // Centro del slot en espacio local (centrado en el grid)
+            float sx = cell.x * slotSize - centerX;
+            float sz = cell.y * slotSize - centerZ;
+
+            foreach (var offset in Offsets)
             {
-                // Calculamos la posición X de esta carta.
-                // Restamos totalWidth/2 para centrar el grid en el origen del Board.
-                // Ejemplo: col=0 → x=-2, col=1 → x=0, col=2 → x=2
-                float x = col * spacingX - totalWidth / 2f;
+                Vector3 localPos = new Vector3(
+                    sx + offset.x * cardSpacing,
+                    0f,
+                    sz + offset.y * cardSpacing
+                );
 
-                // Mismo cálculo pero para el eje Z (profundidad).
-                float z = row * spacingZ - totalDepth / 2f;
+                GameObject card = Instantiate(
+                    cardPrefab,
+                    transform.TransformPoint(localPos),
+                    Quaternion.identity,
+                    transform
+                );
 
-                // Creamos un Vector3 con la posición local de esta carta.
-                // Y=0 para que quede a la misma altura que el Board.
-                Vector3 localPos = new Vector3(x, 0f, z);
-
-                // Instantiate crea una copia del prefab en la escena.
-                // - cardPrefab: el objeto a copiar.
-                // - transform.TransformPoint(localPos): convierte la posición local
-                //   (relativa al Board) a posición global en el mundo.
-                // - Quaternion.identity: sin rotación (rotación "neutral").
-                // - transform: hace que la carta creada sea hija del Board,
-                //   así queda organizada dentro de él en la jerarquía.
-                Instantiate(cardPrefab, transform.TransformPoint(localPos), Quaternion.identity, transform);
+                MeshRenderer mr = card.GetComponent<MeshRenderer>();
+                if (mr != null) mr.material.color = color;
             }
         }
+    }
+
+    public void ClearCards()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+            Destroy(transform.GetChild(i).gameObject);
     }
 }
