@@ -26,44 +26,30 @@ public class CardsSpawner : MonoBehaviour
     }
 
     // Este método crea las 9 cartas organizadas en una grilla 3x3.
-    void SpawnGrid()
+void SpawnGrid()
     {
-        // Cantidad de columnas y filas del grid.
         int cols = 3;
         int rows = 3;
 
-        // Calculamos el ancho y la profundidad total del grid.
-        // Usamos (cols - 1) porque entre 3 columnas hay 2 espacios, no 3.
-        // Ejemplo con spacingX=2: totalWidth = 2 * 2 = 4 unidades de ancho total.
         float totalWidth = (cols - 1) * spacingX;
         float totalDepth = (rows - 1) * spacingZ;
 
-        // Recorremos cada fila del grid (0, 1, 2).
         for (int row = 0; row < rows; row++)
         {
-            // Dentro de cada fila, recorremos cada columna (0, 1, 2).
             for (int col = 0; col < cols; col++)
             {
-                // Calculamos la posición X de esta carta.
-                // Restamos totalWidth/2 para centrar el grid en el origen del Board.
-                // Ejemplo: col=0 → x=-2, col=1 → x=0, col=2 → x=2
                 float x = col * spacingX - totalWidth / 2f;
-
-                // Mismo cálculo pero para el eje Z (profundidad).
                 float z = row * spacingZ - totalDepth / 2f;
-
-                // Creamos un Vector3 con la posición local de esta carta.
-                // Y=0 para que quede a la misma altura que el Board.
                 Vector3 localPos = new Vector3(x, 0f, z);
 
-                // Instantiate crea una copia del prefab en la escena.
-                // - cardPrefab: el objeto a copiar.
-                // - transform.TransformPoint(localPos): convierte la posición local
-                //   (relativa al Board) a posición global en el mundo.
-                // - Quaternion.identity: sin rotación (rotación "neutral").
-                // - transform: hace que la carta creada sea hija del Board,
-                //   así queda organizada dentro de él en la jerarquía.
-                Instantiate(cardPrefab, transform.TransformPoint(localPos), Quaternion.identity, transform);
+                GameObject card = Instantiate(cardPrefab, transform.TransformPoint(localPos), Quaternion.identity, transform);
+
+                // Asignamos un color random al MeshRenderer de la carta
+                MeshRenderer renderer = card.GetComponent<MeshRenderer>();
+                if (renderer != null)
+                {
+                    renderer.material.color = Random.ColorHSV(0f, 1f, 0.6f, 1f, 0.8f, 1f);
+                }
             }
         }
     }
