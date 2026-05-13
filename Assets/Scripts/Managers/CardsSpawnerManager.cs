@@ -10,6 +10,7 @@ public class CardsSpawnerManager : MonoBehaviour
     [SerializeField] public Card cardPrefab;
     [SerializeField] public LevelData levelData;
     [SerializeField] public BoardResizerManager boardResizer;
+    [SerializeField] public OrdersManager ordersManager;
 
     public void OverrideLevelData(LevelData runtime) { levelData = runtime; }
 
@@ -102,9 +103,28 @@ public class CardsSpawnerManager : MonoBehaviour
             }
 
             AddChunkCollider(chunkGO);
-            chunk.Init(this, chunkInfo.direction, chunkInfo.cells);
+            var firstEntry = lookup[chunkInfo.cells[0]];
+            Color chunkColor = new Color(firstEntry.r, firstEntry.g, firstEntry.b, 1f);
+            chunk.Init(this, ordersManager, chunkInfo.direction, chunkInfo.cells, chunkColor);
             chunks.Add(chunk);
         }
+
+        AssignOrderColors();
+    }
+
+    void AssignOrderColors()
+    {
+        if (ordersManager == null) return;
+        var viable = new List<Color>();
+        var seen = new HashSet<Color>();
+        foreach (var c in chunks)
+        {
+            if (c == null) continue;
+            var (blocker, _) = CalculateChunkMove(c);
+            if (blocker != null) continue;
+            if (seen.Add(c.Color)) viable.Add(c.Color);
+        }
+        if (viable.Count > 0) ordersManager.AssignColors(viable);
     }
 
     void AddChunkCollider(GameObject chunkGO)

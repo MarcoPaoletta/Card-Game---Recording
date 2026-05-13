@@ -5,8 +5,9 @@ using UnityEngine;
 public class Chunk : MonoBehaviour
 {
     [Header("Tuning")]
-    [SerializeField] private float moveDuration = 0.35f;
-    [SerializeField] private float scaleDownDuration = 0.25f;
+    [SerializeField] private float moveDuration = 0.5f;
+    [SerializeField] private float jumpPower = 1.5f;
+    [SerializeField] private int jumpCount = 1;
     [SerializeField] private float cardStaggerDelay = 0.06f;
     [SerializeField] private float bounceDuration = 0.12f;
     [SerializeField] private float bounceNudge = 0.15f;
@@ -14,6 +15,7 @@ public class Chunk : MonoBehaviour
     [SerializeField] private float punchScale = 0.2f;
 
     private CardsSpawnerManager spawner;
+    private OrdersManager ordersManager;
     private CellDirection direction;
     private List<Vector2Int> cells;
     private Vector3 originalPosition;
@@ -22,12 +24,15 @@ public class Chunk : MonoBehaviour
     public CellDirection Direction => direction;
     public IReadOnlyList<Vector2Int> Cells => cells;
     public bool IsInteractable => isInteractable;
+    public Color Color { get; private set; }
 
-    public void Init(CardsSpawnerManager spawner, CellDirection dir, List<Vector2Int> cells)
+    public void Init(CardsSpawnerManager spawner, OrdersManager orders, CellDirection dir, List<Vector2Int> cells, Color color)
     {
         this.spawner = spawner;
+        this.ordersManager = orders;
         this.direction = dir;
         this.cells = cells;
+        this.Color = color;
         originalPosition = transform.position;
     }
 
@@ -68,15 +73,32 @@ public class Chunk : MonoBehaviour
         for (int i = 0; i < ordered.Count; i++)
         {
             var card = ordered[i];
-            Vector3 cardTarget = card.position + dirVec * distance;
             float delay = i * cardStaggerDelay;
+
+            var assign = ordersManager != null ? ordersManager.AcquireNextSlot() : (null, (Transform)null);
+            Order targetOrder = assign.order;
+            Transform targetSlot = assign.slot;
+
+            Vector3 cardTarget = targetSlot != null
+                ? targetSlot.position
+                : card.position + dirVec * distance;
 
             var seq = DOTween.Sequence();
             if (delay > 0f) seq.AppendInterval(delay);
-            seq.Append(card.DOMove(cardTarget, moveDuration).SetEase(Ease.OutCubic));
-            seq.Append(card.DOScale(Vector3.zero, scaleDownDuration).SetEase(Ease.InBack));
+            seq.Append(card.DOJump(cardTarget, jumpPower, jumpCount, moveDuration).SetEase(Ease.OutQuad));
             seq.OnComplete(() =>
             {
+                if (targetSlot != null && card != null)
+                {
+                    card.SetParent(targetSlot, worldPositionStays: true);
+                    card.localPosition = Vector3.zero;
+                    card.localRotation = Quaternion.identity;
+                    targetOrder.NotifyDelivered();
+                }
+                else if (card != null)
+                {
+                    Destroy(card.gameObject);
+                }
                 remaining--;
                 if (remaining <= 0)
                 {
