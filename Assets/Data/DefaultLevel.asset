@@ -13,6 +13,4 @@ MonoBehaviour:
   m_Name: DefaultLevel
   m_EditorClassIdentifier: Assembly-CSharp::LevelData
   levelName: Nivel 1
-  cols: 3
-  rows: 3
   cells: []

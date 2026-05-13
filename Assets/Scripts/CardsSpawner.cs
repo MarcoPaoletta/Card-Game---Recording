@@ -8,20 +8,26 @@ public class CardsSpawner : MonoBehaviour
     [SerializeField] public Transform boardTransform;
 
     [Header("Layout")]
-    [Tooltip("Tamaño de cada slot en unidades del mundo")]
-    [SerializeField] public float slotSize = 4f;
-    [Tooltip("Espaciado entre centros de las 4 cartas dentro de un slot")]
-    [SerializeField] public float cardSpacing = 1.2f;
+    [Tooltip("Espaciado horizontal (X) entre centros de columnas de cartas")]
+    [SerializeField] public float spacingX = 0.8f;
+    [Tooltip("Espaciado vertical (Z) entre centros de cartas")]
+    [SerializeField] public float spacingZ = 0.2f;
     [Tooltip("Margen alrededor del grid en el Board")]
     [SerializeField] public float margin = 1f;
 
-    // Las 4 posiciones relativas de las cartas dentro de un slot (escala por cardSpacing)
+    // Cada celda = 1 columna de 4 cartas alineadas en Z.
+    // SlotX = spacingX (1 carta de ancho por celda).
+    // SlotZ = 4 * spacingZ para que las cartas entre celdas verticales conserven spacingZ.
+    private float SlotX => spacingX;
+    private float SlotZ => spacingZ * 4f;
+
+    // 4 cartas en columna a lo largo del eje Z, todas con la misma X
     private static readonly Vector2[] Offsets =
     {
-        new Vector2(-0.5f,  0.5f),   // arriba-izquierda
-        new Vector2( 0.5f,  0.5f),   // arriba-derecha
-        new Vector2(-0.5f, -0.5f),   // abajo-izquierda
-        new Vector2( 0.5f, -0.5f),   // abajo-derecha
+        new Vector2(0f, -1.5f),
+        new Vector2(0f, -0.5f),
+        new Vector2(0f,  0.5f),
+        new Vector2(0f,  1.5f),
     };
 
     public void SpawnCards()
@@ -41,12 +47,12 @@ public class CardsSpawner : MonoBehaviour
             if (cell.y > maxY) maxY = cell.y;
         }
 
-        float gridW = (maxX - minX + 1) * slotSize;
-        float gridH = (maxY - minY + 1) * slotSize;
+        float gridW = (maxX - minX + 1) * SlotX;
+        float gridH = (maxY - minY + 1) * SlotZ;
 
         // Centro del nivel en coordenadas del mundo (relativo a este transform)
-        float centerX = (minX + maxX) * 0.5f * slotSize;
-        float centerZ = (minY + maxY) * 0.5f * slotSize;
+        float centerX = (minX + maxX) * 0.5f * SlotX;
+        float centerZ = (minY + maxY) * 0.5f * SlotZ;
 
         // Escalar y reposicionar el Board para que contenga el grid + margen
         if (boardTransform != null)
@@ -68,15 +74,15 @@ public class CardsSpawner : MonoBehaviour
             Color color = new Color(cell.r, cell.g, cell.b, 1f);
 
             // Centro del slot en espacio local (centrado en el grid)
-            float sx = cell.x * slotSize - centerX;
-            float sz = cell.y * slotSize - centerZ;
+            float sx = cell.x * SlotX - centerX;
+            float sz = cell.y * SlotZ - centerZ;
 
             foreach (var offset in Offsets)
             {
                 Vector3 localPos = new Vector3(
-                    sx + offset.x * cardSpacing,
+                    sx + offset.x * spacingX,
                     0f,
-                    sz + offset.y * cardSpacing
+                    sz + offset.y * spacingZ
                 );
 
                 GameObject card = Instantiate(

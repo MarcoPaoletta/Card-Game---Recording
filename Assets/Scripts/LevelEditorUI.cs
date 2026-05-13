@@ -32,6 +32,12 @@ public class LevelEditorUI : MonoBehaviour
     private const float PanInitialDelay  = 0.30f;
     private const float PanRepeatInterval = 0.07f;
 
+    // Pan con rueda del mouse (middle button drag)
+    private Vector2 mousePanAccum;
+
+    // Pintado por arrastre: 0 = nada, 1 = pintar, 2 = borrar
+    private int dragOp;
+
     // ── Paleta ───────────────────────────────────────────────────────────────
     private static readonly Color[] Palette =
     {
@@ -52,9 +58,9 @@ public class LevelEditorUI : MonoBehaviour
 
     void Awake()
     {
-        // Centrar el viewport en el origen (0,0)
-        viewOffsetX = -(VIEWPORT_W / 2);
-        viewOffsetY = -(VIEWPORT_H / 2);
+        // Origen (0,0) en la esquina superior-izquierda del viewport
+        viewOffsetX = 0;
+        viewOffsetY = 0;
         BuildUI();
     }
 
@@ -66,8 +72,8 @@ public class LevelEditorUI : MonoBehaviour
         int dx = 0, dy = 0;
         if (kb.leftArrowKey.isPressed  || kb.aKey.isPressed)  dx = -1;
         if (kb.rightArrowKey.isPressed || kb.dKey.isPressed)  dx =  1;
-        if (kb.upArrowKey.isPressed    || kb.wKey.isPressed)  dy =  1;
-        if (kb.downArrowKey.isPressed  || kb.sKey.isPressed)  dy = -1;
+        if (kb.upArrowKey.isPressed    || kb.wKey.isPressed)  dy = -1;
+        if (kb.downArrowKey.isPressed  || kb.sKey.isPressed)  dy =  1;
 
         bool anyJustPressed =
             kb.leftArrowKey.wasPressedThisFrame  || kb.aKey.wasPressedThisFrame ||
@@ -89,12 +95,71 @@ public class LevelEditorUI : MonoBehaviour
                 Pan(dx, dy);
             }
         }
+
+        HandleMousePan();
+        HandleDragRelease();
+    }
+
+    void HandleMousePan()
+    {
+        var mouse = Mouse.current;
+        if (mouse == null) return;
+
+        if (!mouse.middleButton.isPressed)
+        {
+            mousePanAccum = Vector2.zero;
+            return;
+        }
+
+        Vector2 delta = mouse.delta.ReadValue();
+        float cellSize = CELL_PX + CELL_GAP;
+        // Arrastrar a la derecha mueve el contenido a la derecha → viewOffsetX disminuye
+        mousePanAccum.x -= delta.x / cellSize;
+        mousePanAccum.y -= delta.y / cellSize;
+
+        int panDx = 0, panDy = 0;
+        while (mousePanAccum.x >=  1f) { panDx++; mousePanAccum.x -= 1f; }
+        while (mousePanAccum.x <= -1f) { panDx--; mousePanAccum.x += 1f; }
+        while (mousePanAccum.y >=  1f) { panDy++; mousePanAccum.y -= 1f; }
+        while (mousePanAccum.y <= -1f) { panDy--; mousePanAccum.y += 1f; }
+        if (panDx != 0 || panDy != 0) Pan(panDx, panDy);
+    }
+
+    void HandleDragRelease()
+    {
+        var mouse = Mouse.current;
+        if (mouse == null) { dragOp = 0; return; }
+        if (!mouse.leftButton.isPressed && !mouse.rightButton.isPressed)
+            dragOp = 0;
+    }
+
+    // Llamado por las celdas al recibir un click
+    public void OnCellPointerDown(int gx, int gy, bool isRight)
+    {
+        dragOp = isRight ? 2 : 1;
+        ApplyPaint(gx, gy);
+    }
+
+    // Llamado por las celdas al pasar el cursor con un botón presionado
+    public void OnCellPointerEnter(int gx, int gy)
+    {
+        if (dragOp != 0) ApplyPaint(gx, gy);
+    }
+
+    void ApplyPaint(int gx, int gy)
+    {
+        if (levelData == null) return;
+        Color c = dragOp == 2 ? Color.clear : selectedColor;
+        levelData.SetCell(gx, gy, c);
+        RefreshGrid();
     }
 
     void Pan(int dx, int dy)
     {
         viewOffsetX += dx;
         viewOffsetY += dy;
+        if (viewOffsetX < 0) viewOffsetX = 0;
+        if (viewOffsetY < 0) viewOffsetY = 0;
         UpdateCoords();
         RefreshGrid();
     }
@@ -118,7 +183,7 @@ public class LevelEditorUI : MonoBehaviour
         int x0 = viewOffsetX, y0 = viewOffsetY;
         int x1 = viewOffsetX + VIEWPORT_W - 1;
         int y1 = viewOffsetY + VIEWPORT_H - 1;
-        coordsText.text = $"({x0},{y0}) → ({x1},{y1})";
+        coordsText.text = $"TL ({x0},{y0})\nBR ({x1},{y1})";
     }
 
     // ── Construcción de la UI ────────────────────────────────────────────────
@@ -241,36 +306,44 @@ public class LevelEditorUI : MonoBehaviour
         for (int row = 0; row < VIEWPORT_H; row++)
         for (int col = 0; col < VIEWPORT_W; col++)
         {
-            // Fila 0 en pantalla = Y más alto en la grilla
+            // Fila 0 en pantalla = Y = 0 (origen arriba-izquierda)
             int gx = viewOffsetX + col;
-            int gy = viewOffsetY + (VIEWPORT_H - 1 - row);
+            int gy = viewOffsetY + row;
 
             Color cellColor;
             bool painted = levelData.TryGetColor(gx, gy, out cellColor);
             Color disp   = painted ? cellColor : new Color(.14f, .14f, .16f);
 
-            int cx = gx, cy = gy;   // captura para el closure
-            GridCell(disp, () =>
-            {
-                levelData.SetCell(cx, cy, selectedColor);
-                RefreshGrid();
-            });
+            GridCell(disp, gx, gy);
         }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    void GridCell(Color bg, System.Action onClick)
+    void GridCell(Color bg, int gx, int gy)
     {
         var go  = new GameObject("cell");
         go.transform.SetParent(gridContainer, false);
         var img = go.AddComponent<Image>(); img.color = bg;
-        var btn = go.AddComponent<Button>(); btn.targetGraphic = img;
-        var cb  = btn.colors;
-        cb.highlightedColor = Color.Lerp(bg, Color.white, 0.30f);
-        cb.pressedColor     = Color.Lerp(bg, Color.black, 0.40f);
-        btn.colors = cb;
-        btn.onClick.AddListener(() => onClick?.Invoke());
+        var h = go.AddComponent<GridCellHandler>();
+        h.ui = this; h.gx = gx; h.gy = gy;
+
+        // Etiqueta de coordenadas en la esquina inferior-izquierda
+        var lbl = new GameObject("coord");
+        lbl.transform.SetParent(go.transform, false);
+        var rt = lbl.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(4, 2); rt.offsetMax = new Vector2(-2, -2);
+        var t = lbl.AddComponent<Text>();
+        t.text = $"{gx},{gy}";
+        t.fontSize = 11;
+        t.fontStyle = FontStyle.Bold;
+        t.alignment = TextAnchor.LowerLeft;
+        // Color de texto que contraste con el fondo
+        float lum = 0.299f * bg.r + 0.587f * bg.g + 0.114f * bg.b;
+        t.color = new Color(lum > 0.5f ? 0f : 1f, lum > 0.5f ? 0f : 1f, lum > 0.5f ? 0f : 1f, 0.55f);
+        t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.raycastTarget = false;
     }
 
     RectTransform MakePanel(Transform parent, string name, Color color)
@@ -336,5 +409,25 @@ public class LevelEditorUI : MonoBehaviour
     {
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = rt.offsetMax = Vector2.zero;
+    }
+}
+
+public class GridCellHandler : MonoBehaviour, IPointerDownHandler, IPointerEnterHandler
+{
+    public LevelEditorUI ui;
+    public int gx, gy;
+
+    public void OnPointerDown(PointerEventData e)
+    {
+        if (ui == null) return;
+        if (e.button == PointerEventData.InputButton.Right)
+            ui.OnCellPointerDown(gx, gy, true);
+        else if (e.button == PointerEventData.InputButton.Left)
+            ui.OnCellPointerDown(gx, gy, false);
+    }
+
+    public void OnPointerEnter(PointerEventData e)
+    {
+        if (ui != null) ui.OnCellPointerEnter(gx, gy);
     }
 }

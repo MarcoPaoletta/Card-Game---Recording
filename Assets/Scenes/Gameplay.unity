@@ -263,7 +263,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::LevelBuilderManager
   editorUI: {fileID: 2045819629}
   spawner: {fileID: 1861954763}
-  levelData: {fileID: 11400000, guid: 58dc4f77fdbbac14eb1947e26efb5074, type: 2}
+  levelData: {fileID: 11400000, guid: e8a664ae824d503428b69dfe7a3b5b47, type: 2}
 --- !u!4 &176740451
 Transform:
   m_ObjectHideFlags: 0
@@ -784,10 +784,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CardsSpawner
   cardPrefab: {fileID: 5257244995282828516, guid: 9c52939896e51e3478ceb970008593fa, type: 3}
-  levelData: {fileID: 11400000, guid: 58dc4f77fdbbac14eb1947e26efb5074, type: 2}
+  levelData: {fileID: 11400000, guid: e8a664ae824d503428b69dfe7a3b5b47, type: 2}
   boardTransform: {fileID: 1808661377}
-  spacingX: 2
-  spacingZ: 3
+  spacingX: 0.8
+  spacingZ: 0.2
   margin: 0.5
 --- !u!4 &1861954764
 Transform:
@@ -833,7 +833,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad82478f54394947a268c96f9139a24, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LevelEditorUI
-  levelData: {fileID: 11400000, guid: 58dc4f77fdbbac14eb1947e26efb5074, type: 2}
+  levelData: {fileID: 11400000, guid: e8a664ae824d503428b69dfe7a3b5b47, type: 2}
   manager: {fileID: 176740450}
 --- !u!4 &2045819630
 Transform:
