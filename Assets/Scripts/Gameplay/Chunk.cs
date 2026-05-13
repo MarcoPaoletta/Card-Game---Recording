@@ -53,7 +53,7 @@ public class Chunk : MonoBehaviour
         }
     }
 
-    void FlyOutStaggered(Vector3 dirVec, float distance)
+    private void FlyOutStaggered(Vector3 dirVec, float distance)
     {
         // Desactivar el collider para que el chunk no se pueda re-clickear durante la salida.
         var box = GetComponent<Collider>();
