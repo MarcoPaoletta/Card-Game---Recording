@@ -1,5 +1,8 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 
 public class CardsSpawnerManager : MonoBehaviour
 {
@@ -16,15 +19,22 @@ public class CardsSpawnerManager : MonoBehaviour
     [Tooltip("Distancia entre cartas apiladas dentro de un chunk (lado corto)")]
     [SerializeField] public float spacingZ = 0.2f;
 
+    [Header("Movimiento")]
+    [Tooltip("Margen (en unidades de mundo) que se respeta del borde del board cuando un chunk sale.")]
+    [SerializeField] private float boardEdgeMargin = 0.3f;
+    [Tooltip("Padding extra para el BoxCollider de cada chunk (en cada eje, sumado a ambos lados).")]
+    [SerializeField] private Vector3 chunkColliderPadding = new Vector3(0.4f, 1.2f, 0.4f);
+
     private float SlotX => spacingX;
     private float SlotZ => spacingX;
-
-    // i-index dentro del stack de 4 cartas que recibe la flecha (carta central del chunk).
     private const int CentralCardIndex = 1;
+
+    private readonly List<Chunk> chunks = new List<Chunk>();
 
     public void SpawnCards()
     {
         ClearCards();
+        chunks.Clear();
 
         if (boardResizer != null && levelData != null)
             boardResizer.ResizeToFit(levelData.cells);
@@ -47,33 +57,69 @@ public class CardsSpawnerManager : MonoBehaviour
 
         float[] order = { -1.5f, -0.5f, 0.5f, 1.5f };
 
-        var arrowHosts = ComputeArrowHosts(levelData.cells, centerX, centerZ);
+        var lookup = new Dictionary<Vector2Int, CellEntry>(levelData.cells.Count);
+        foreach (var c in levelData.cells) lookup[new Vector2Int(c.x, c.y)] = c;
 
-        foreach (var cell in levelData.cells)
+        int chunkIndex = 0;
+        foreach (var chunkInfo in ExtractChunks(levelData.cells, lookup))
         {
-            Color color = new Color(cell.r, cell.g, cell.b, 1f);
-            CellDirection direction = (CellDirection)cell.dir;
+            var chunkGO = new GameObject($"Chunk_{chunkIndex++}_{chunkInfo.direction}");
+            chunkGO.transform.SetParent(transform, false);
+            var chunk = chunkGO.AddComponent<Chunk>();
 
-            float sx = cell.x * SlotX - centerX;
-            float sz = centerZ - cell.y * SlotZ;
+            var hostCell = chunkInfo.cells[chunkInfo.cells.Count / 2];
+            var first = chunkInfo.cells[0];
+            var last = chunkInfo.cells[chunkInfo.cells.Count - 1];
+            float arrowGx = (first.x + last.x) * 0.5f;
+            float arrowGy = (first.y + last.y) * 0.5f;
+            Vector3 arrowWorldPos = transform.TransformPoint(new Vector3(
+                arrowGx * SlotX - centerX, 0f, centerZ - arrowGy * SlotZ));
+            arrowWorldPos.y = 0.5f;
 
-            bool horizontal = (direction == CellDirection.Left || direction == CellDirection.Right);
-            Quaternion rot = CardRotation(direction);
+            bool horizontal = (chunkInfo.direction == CellDirection.Left || chunkInfo.direction == CellDirection.Right);
+            Quaternion rot = CardRotation(chunkInfo.direction);
 
-            for (int i = 0; i < 4; i++)
+            foreach (var cellPos in chunkInfo.cells)
             {
-                float ox = horizontal ? order[i] * spacingZ : 0f;
-                float oz = horizontal ? 0f : order[i] * spacingZ;
+                var entry = lookup[cellPos];
+                Color color = new Color(entry.r, entry.g, entry.b, 1f);
 
-                Vector3 localPos = new Vector3(sx + ox, 0f, sz + oz);
-                Vector3 worldPos = transform.TransformPoint(localPos);
-                worldPos.y = 0.5f;
+                float sx = entry.x * SlotX - centerX;
+                float sz = centerZ - entry.y * SlotZ;
 
-                var card = Instantiate(cardPrefab, worldPos, rot, transform);
-                bool showArrow = arrowHosts.TryGetValue((cell.x, cell.y, i), out Vector3 arrowWorldPos);
-                card.Setup(color, showArrow, arrowWorldPos);
+                for (int i = 0; i < 4; i++)
+                {
+                    float ox = horizontal ? order[i] * spacingZ : 0f;
+                    float oz = horizontal ? 0f : order[i] * spacingZ;
+
+                    Vector3 worldPos = transform.TransformPoint(new Vector3(sx + ox, 0f, sz + oz));
+                    worldPos.y = 0.5f;
+
+                    var card = Instantiate(cardPrefab, worldPos, rot, chunkGO.transform);
+                    bool showArrow = (cellPos == hostCell && i == CentralCardIndex);
+                    card.Setup(color, showArrow, arrowWorldPos);
+                }
             }
+
+            AddChunkCollider(chunkGO);
+            chunk.Init(this, chunkInfo.direction, chunkInfo.cells);
+            chunks.Add(chunk);
         }
+    }
+
+    void AddChunkCollider(GameObject chunkGO)
+    {
+        int childCount = chunkGO.transform.childCount;
+        if (childCount == 0) return;
+
+        var bounds = new Bounds(chunkGO.transform.GetChild(0).position, Vector3.zero);
+        for (int i = 1; i < childCount; i++)
+            bounds.Encapsulate(chunkGO.transform.GetChild(i).position);
+        bounds.Expand(chunkColliderPadding);
+
+        var box = chunkGO.AddComponent<BoxCollider>();
+        box.center = bounds.center - chunkGO.transform.position;
+        box.size = bounds.size;
     }
 
     public void ClearCards()
@@ -82,47 +128,113 @@ public class CardsSpawnerManager : MonoBehaviour
             Destroy(transform.GetChild(i).gameObject);
     }
 
-    // Para cada chunk: elige una carta host (cellPos + i) y devuelve la posición world donde el arrow
-    // debe quedar (el centro geométrico real del chunk, que puede caer entre celdas o entre cartas).
-    Dictionary<(int, int, int), Vector3> ComputeArrowHosts(List<CellEntry> cells, float centerX, float centerZ)
+    void Update()
     {
-        var hosts = new Dictionary<(int, int, int), Vector3>();
-        var lookup = new Dictionary<Vector2Int, CellEntry>(cells.Count);
-        foreach (var c in cells) lookup[new Vector2Int(c.x, c.y)] = c;
+        var mouse = Mouse.current;
+        if (mouse == null || !mouse.leftButton.wasPressedThisFrame) return;
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
 
+        var cam = Camera.main;
+        if (cam == null) return;
+
+        Vector2 screenPos = mouse.position.ReadValue();
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        if (Physics.Raycast(ray, out var hit, 200f))
+        {
+            var chunk = hit.collider.GetComponentInParent<Chunk>();
+            if (chunk != null) chunk.OnClicked();
+        }
+    }
+
+    public void UnregisterChunk(Chunk c) { chunks.Remove(c); }
+
+    public (Chunk blocker, float distance) CalculateChunkMove(Chunk chunk)
+    {
+        Vector2Int dirGrid = StepFromDir(chunk.Direction);
+        Vector3 dirWorld = Chunk.WorldStep(chunk.Direction);
+
+        float distanceToEdge = DistanceToBoardEdge(chunk, dirWorld);
+        int maxSteps = Mathf.Max(1, Mathf.CeilToInt(distanceToEdge / SlotX) + 1);
+
+        Vector2Int leading = LeadingCell(chunk, dirGrid);
+        for (int step = 1; step <= maxSteps; step++)
+        {
+            var checkPos = leading + step * dirGrid;
+            var blocker = FindChunkContaining(checkPos, chunk);
+            if (blocker != null) return (blocker, 0f);
+        }
+
+        return (null, Mathf.Max(0f, distanceToEdge - boardEdgeMargin));
+    }
+
+    Chunk FindChunkContaining(Vector2Int pos, Chunk except)
+    {
+        foreach (var c in chunks)
+        {
+            if (c == null || c == except) continue;
+            if (c.Cells.Contains(pos)) return c;
+        }
+        return null;
+    }
+
+    float DistanceToBoardEdge(Chunk chunk, Vector3 dirWorld)
+    {
+        if (boardResizer == null) return 0f;
+        Bounds b = boardResizer.GetBoardWorldBounds();
+
+        Vector3[] corners = {
+            new Vector3(b.min.x, 0f, b.min.z),
+            new Vector3(b.min.x, 0f, b.max.z),
+            new Vector3(b.max.x, 0f, b.min.z),
+            new Vector3(b.max.x, 0f, b.max.z),
+        };
+        float boardEdgeInDir = float.NegativeInfinity;
+        foreach (var c in corners)
+            boardEdgeInDir = Mathf.Max(boardEdgeInDir, Vector3.Dot(c, dirWorld));
+
+        float leadingInDir = float.NegativeInfinity;
+        foreach (Transform card in chunk.transform)
+            leadingInDir = Mathf.Max(leadingInDir, Vector3.Dot(card.position, dirWorld));
+
+        return boardEdgeInDir - leadingInDir;
+    }
+
+    static Vector2Int LeadingCell(Chunk chunk, Vector2Int dirGrid)
+    {
+        Vector2Int best = chunk.Cells[0];
+        int bestScore = best.x * dirGrid.x + best.y * dirGrid.y;
+        foreach (var c in chunk.Cells)
+        {
+            int s = c.x * dirGrid.x + c.y * dirGrid.y;
+            if (s > bestScore) { best = c; bestScore = s; }
+        }
+        return best;
+    }
+
+    struct ChunkInfo { public CellDirection direction; public List<Vector2Int> cells; }
+
+    static IEnumerable<ChunkInfo> ExtractChunks(List<CellEntry> cells, Dictionary<Vector2Int, CellEntry> lookup)
+    {
         foreach (var endCell in cells)
         {
             if (!endCell.isEnd) continue;
-            Vector2Int back = -StepFromDir((CellDirection)endCell.dir);
-            var chunk = new List<Vector2Int> { new Vector2Int(endCell.x, endCell.y) };
-            var cur = chunk[0];
+            var dir = (CellDirection)endCell.dir;
+            Vector2Int back = -StepFromDir(dir);
+            var chunkCells = new List<Vector2Int> { new Vector2Int(endCell.x, endCell.y) };
+            var cur = chunkCells[0];
             while (true)
             {
                 var prev = cur + back;
                 if (lookup.TryGetValue(prev, out var p) && p.dir == endCell.dir)
                 {
-                    chunk.Add(prev);
+                    chunkCells.Add(prev);
                     cur = prev;
                 }
                 else break;
             }
-            chunk.Reverse();
-
-            var hostCell = chunk[chunk.Count / 2];
-            int hostIndex = CentralCardIndex;
-
-            var first = chunk[0];
-            var last = chunk[chunk.Count - 1];
-            float gx = (first.x + last.x) * 0.5f;
-            float gy = (first.y + last.y) * 0.5f;
-            float sx = gx * SlotX - centerX;
-            float sz = centerZ - gy * SlotZ;
-            Vector3 worldPos = transform.TransformPoint(new Vector3(sx, 0f, sz));
-            worldPos.y = 0.5f;
-
-            hosts[(hostCell.x, hostCell.y, hostIndex)] = worldPos;
+            chunkCells.Reverse();
+            yield return new ChunkInfo { direction = dir, cells = chunkCells };
         }
-        return hosts;
     }
 
     static Quaternion CardRotation(CellDirection d)

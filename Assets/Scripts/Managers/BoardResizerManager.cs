@@ -24,6 +24,15 @@ public class BoardResizerManager : MonoBehaviour
     public float SlotSize => slotSize;
     public float Margin => margin;
 
+    public Bounds GetBoardWorldBounds()
+    {
+        if (boardTransform == null) return new Bounds();
+        float unit = meshUnitsPerScale <= 0.0001f ? 1f : meshUnitsPerScale;
+        return new Bounds(
+            boardTransform.position,
+            new Vector3(boardTransform.localScale.x * unit, 0f, boardTransform.localScale.z * unit));
+    }
+
     public void ResizeToFit(List<CellEntry> cells)
     {
         if (boardTransform == null) return;
