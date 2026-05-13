@@ -73,9 +73,10 @@ public class CardsSpawner : MonoBehaviour
         {
             Color color = new Color(cell.r, cell.g, cell.b, 1f);
 
-            // Centro del slot en espacio local (centrado en el grid)
+            // Centro del slot en espacio local (centrado en el grid).
+            // Z invertido: editor fila 0 (arriba) → +Z mundo (arriba en pantalla con la cámara actual).
             float sx = cell.x * SlotX - centerX;
-            float sz = cell.y * SlotZ - centerZ;
+            float sz = centerZ - cell.y * SlotZ;
 
             foreach (var offset in Offsets)
             {
@@ -84,10 +85,12 @@ public class CardsSpawner : MonoBehaviour
                     0f,
                     sz + offset.y * spacingZ
                 );
+                Vector3 worldPos = transform.TransformPoint(localPos);
+                worldPos.y = 0.5f;
 
                 GameObject card = Instantiate(
                     cardPrefab,
-                    transform.TransformPoint(localPos),
+                    worldPos,
                     Quaternion.identity,
                     transform
                 );

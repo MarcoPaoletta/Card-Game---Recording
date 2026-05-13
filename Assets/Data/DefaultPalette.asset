@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22aa8c91469f77b4da64cf6bc6b98a8c, type: 3}
+  m_Name: DefaultPalette
+  m_EditorClassIdentifier: Assembly-CSharp::ColorPalette
+  entries:
+  - label: Empty
+    color: {r: 0, g: 0, b: 0, a: 0}
+  - label: Red
+    color: {r: 1, g: 0, b: 0, a: 1}
+  - label: Blue
+    color: {r: 0.2, g: 0.4, b: 1, a: 1}
+  - label: Green
+    color: {r: 0.1, g: 0.8, b: 0.2, a: 1}
+  - label: Yellow
+    color: {r: 1, g: 0.92, b: 0.016, a: 1}
+  - label: Purple
+    color: {r: 0.7, g: 0.2, b: 0.9, a: 1}
+  - label: Orange
+    color: {r: 1, g: 0.5, b: 0, a: 1}
+  - label: Cyan
+    color: {r: 0, g: 0.9, b: 0.9, a: 1}
+  - label: White
+    color: {r: 1, g: 1, b: 1, a: 1}
