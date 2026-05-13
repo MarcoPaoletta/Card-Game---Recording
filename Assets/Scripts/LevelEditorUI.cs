@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -41,17 +42,22 @@ public class LevelEditorUI : MonoBehaviour
     // Pan con rueda del mouse (middle button drag)
     private Vector2 mousePanAccum;
 
-    // Pintado por arrastre: 0 = nada, 1 = pintar, 2 = borrar
-    private int dragOp;
+    // ── Estado de drag para line-paint ────────────────────────────────────
+    // dragMode: 0 = nada, 1 = pintar (left), 2 = borrar (right)
+    private int dragMode;
+    private Vector2Int dragStart;
+    private Vector2Int dragCurrent;
+    private List<Vector2Int> previewCells = new List<Vector2Int>();
+    private bool wasDragging;
 
     void Awake()
     {
         viewOffsetX = 0;
         viewOffsetY = 0;
 
-        if (prevButton      != null) prevButton.onClick.AddListener(()      => manager?.PrevLevel());
-        if (nextButton      != null) nextButton.onClick.AddListener(()      => manager?.NextLevel());
-        if (saveExitButton  != null) saveExitButton.onClick.AddListener(()  => manager?.ToggleBuilderMode());
+        if (prevButton     != null) prevButton.onClick.AddListener(()     => manager?.PrevLevel());
+        if (nextButton     != null) nextButton.onClick.AddListener(()     => manager?.NextLevel());
+        if (saveExitButton != null) saveExitButton.onClick.AddListener(() => manager?.ToggleBuilderMode());
 
         BuildPalette();
     }
@@ -91,7 +97,7 @@ public class LevelEditorUI : MonoBehaviour
         }
 
         HandleMousePan();
-        HandleDragRelease();
+        HandleDragLifecycle();
     }
 
     void HandleMousePan()
@@ -105,7 +111,6 @@ public class LevelEditorUI : MonoBehaviour
             return;
         }
 
-        // Convertir delta de pantalla a celdas usando el tamaño real del GridLayoutGroup
         float cellSize = 80f;
         var glg = gridContainer != null ? gridContainer.GetComponent<GridLayoutGroup>() : null;
         if (glg != null) cellSize = glg.cellSize.x + glg.spacing.x;
@@ -122,31 +127,97 @@ public class LevelEditorUI : MonoBehaviour
         if (panDx != 0 || panDy != 0) Pan(panDx, panDy);
     }
 
-    void HandleDragRelease()
+    // Detecta release y commit del chunk
+    void HandleDragLifecycle()
     {
         var mouse = Mouse.current;
-        if (mouse == null) { dragOp = 0; return; }
-        if (!mouse.leftButton.isPressed && !mouse.rightButton.isPressed)
-            dragOp = 0;
+        bool isDragging = dragMode != 0 && mouse != null && (
+            (dragMode == 1 && mouse.leftButton.isPressed) ||
+            (dragMode == 2 && mouse.rightButton.isPressed));
+
+        if (wasDragging && !isDragging) CommitChunk();
+        wasDragging = isDragging;
     }
 
     public void OnCellPointerDown(int gx, int gy, bool isRight)
     {
-        dragOp = isRight ? 2 : 1;
-        ApplyPaint(gx, gy);
+        dragMode = isRight ? 2 : 1;
+        dragStart = new Vector2Int(gx, gy);
+        dragCurrent = dragStart;
+        previewCells.Clear();
+        previewCells.Add(dragStart);
+        wasDragging = true;
+        RefreshGrid();
     }
 
     public void OnCellPointerEnter(int gx, int gy)
     {
-        if (dragOp != 0) ApplyPaint(gx, gy);
+        if (dragMode == 0) return;
+        var newCurrent = new Vector2Int(gx, gy);
+        if (newCurrent == dragCurrent) return;
+        dragCurrent = newCurrent;
+        RecomputePreview();
+        RefreshGrid();
     }
 
-    void ApplyPaint(int gx, int gy)
+    void RecomputePreview()
     {
-        if (levelData == null) return;
-        Color c = dragOp == 2 ? Color.clear : selectedColor;
-        levelData.SetCell(gx, gy, c);
+        previewCells.Clear();
+        int dx = dragCurrent.x - dragStart.x;
+        int dy = dragCurrent.y - dragStart.y;
+        // Snap a eje dominante
+        if (Mathf.Abs(dx) >= Mathf.Abs(dy))
+        {
+            int sign = dx == 0 ? 0 : (dx > 0 ? 1 : -1);
+            int len = Mathf.Abs(dx);
+            for (int i = 0; i <= len; i++) previewCells.Add(new Vector2Int(dragStart.x + sign * i, dragStart.y));
+        }
+        else
+        {
+            int sign = dy > 0 ? 1 : -1;
+            int len = Mathf.Abs(dy);
+            for (int i = 0; i <= len; i++) previewCells.Add(new Vector2Int(dragStart.x, dragStart.y + sign * i));
+        }
+    }
+
+    void CommitChunk()
+    {
+        if (levelData == null || previewCells.Count == 0) { ResetDrag(); return; }
+
+        if (dragMode == 2)
+        {
+            // Borrar
+            foreach (var p in previewCells) levelData.EraseCell(p.x, p.y);
+        }
+        else
+        {
+            // Pintar con dirección
+            int dx = dragCurrent.x - dragStart.x;
+            int dy = dragCurrent.y - dragStart.y;
+            CellDirection dir;
+            if (Mathf.Abs(dx) >= Mathf.Abs(dy))
+                dir = dx >= 0 ? CellDirection.Right : CellDirection.Left;
+            else
+                dir = dy > 0 ? CellDirection.Down : CellDirection.Up;
+            // Nota: con origen top-left, dy > 0 = hacia abajo = "Down"
+
+            var endCell = previewCells[previewCells.Count - 1];
+            foreach (var p in previewCells)
+            {
+                bool isEnd = (p == endCell);
+                levelData.SetCell(p.x, p.y, selectedColor, dir, isEnd);
+            }
+        }
+
+        ResetDrag();
         RefreshGrid();
+    }
+
+    void ResetDrag()
+    {
+        dragMode = 0;
+        previewCells.Clear();
+        wasDragging = false;
     }
 
     void Pan(int dx, int dy)
@@ -193,6 +264,15 @@ public class LevelEditorUI : MonoBehaviour
         }
     }
 
+    // Calcula la dirección provisional del preview durante el drag
+    int PreviewDir()
+    {
+        int dx = dragCurrent.x - dragStart.x;
+        int dy = dragCurrent.y - dragStart.y;
+        if (Mathf.Abs(dx) >= Mathf.Abs(dy)) return dx >= 0 ? (int)CellDirection.Right : (int)CellDirection.Left;
+        return dy > 0 ? (int)CellDirection.Down : (int)CellDirection.Up;
+    }
+
     void RefreshGrid()
     {
         if (gridContainer == null || gridCellPrefab == null || levelData == null) return;
@@ -200,18 +280,44 @@ public class LevelEditorUI : MonoBehaviour
         for (int i = gridContainer.childCount - 1; i >= 0; i--)
             Destroy(gridContainer.GetChild(i).gameObject);
 
+        // Set de celdas en preview para lookup rápido
+        Vector2Int previewEnd = previewCells.Count > 0 ? previewCells[previewCells.Count - 1] : new Vector2Int(int.MinValue, int.MinValue);
+        var previewSet = new HashSet<Vector2Int>(previewCells);
+        int previewDir = previewCells.Count > 0 ? PreviewDir() : 0;
+        Color previewColor = dragMode == 2 ? new Color(.14f, .14f, .16f) : selectedColor;
+
         for (int row = 0; row < viewportH; row++)
         for (int col = 0; col < viewportW; col++)
         {
             int gx = viewOffsetX + col;
             int gy = viewOffsetY + row;
+            var key = new Vector2Int(gx, gy);
 
-            Color cellColor;
-            bool painted = levelData.TryGetColor(gx, gy, out cellColor);
-            Color disp   = painted ? cellColor : new Color(.14f, .14f, .16f);
+            Color disp;
+            bool showArrow;
+            int dir;
+
+            if (previewSet.Contains(key))
+            {
+                disp = previewColor;
+                showArrow = (key == previewEnd) && dragMode == 1;
+                dir = previewDir;
+            }
+            else if (levelData.TryGet(gx, gy, out var entry))
+            {
+                disp = new Color(entry.r, entry.g, entry.b, 1f);
+                showArrow = entry.isEnd;
+                dir = entry.dir;
+            }
+            else
+            {
+                disp = new Color(.14f, .14f, .16f);
+                showArrow = false;
+                dir = 0;
+            }
 
             var cell = Instantiate(gridCellPrefab, gridContainer);
-            cell.Setup(this, gx, gy, disp);
+            cell.Setup(this, gx, gy, disp, showArrow, dir);
         }
     }
 }

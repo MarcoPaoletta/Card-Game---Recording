@@ -85,17 +85,33 @@ public static class BuildLevelBuilderUI
         var coordRT = (RectTransform)coordGO.transform;
         coordRT.anchorMin = Vector2.zero; coordRT.anchorMax = Vector2.one;
         coordRT.offsetMin = new Vector2(4, 2); coordRT.offsetMax = new Vector2(-2, -2);
-        var tmp = coordGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = "0,0";
-        tmp.fontSize = 18;
-        tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.BottomLeft;
-        tmp.color = new Color(1, 1, 1, 0.55f);
-        tmp.raycastTarget = false;
+        var coordTmp = coordGO.AddComponent<TextMeshProUGUI>();
+        coordTmp.text = "0,0";
+        coordTmp.fontSize = 18;
+        coordTmp.fontStyle = FontStyles.Bold;
+        coordTmp.alignment = TextAlignmentOptions.BottomLeft;
+        coordTmp.color = new Color(1, 1, 1, 0.55f);
+        coordTmp.raycastTarget = false;
+
+        // Flecha de dirección (sólo visible en celdas marcadas como end del chunk)
+        var arrowGO = new GameObject("Arrow", typeof(RectTransform));
+        arrowGO.transform.SetParent(go.transform, false);
+        var arrowRT = (RectTransform)arrowGO.transform;
+        arrowRT.anchorMin = Vector2.zero; arrowRT.anchorMax = Vector2.one;
+        arrowRT.offsetMin = Vector2.zero; arrowRT.offsetMax = Vector2.zero;
+        var arrowTmp = arrowGO.AddComponent<TextMeshProUGUI>();
+        arrowTmp.text = "→";
+        arrowTmp.fontSize = 48;
+        arrowTmp.fontStyle = FontStyles.Bold;
+        arrowTmp.alignment = TextAlignmentOptions.Center;
+        arrowTmp.color = Color.white;
+        arrowTmp.raycastTarget = false;
+        arrowGO.SetActive(false);
 
         var so = new SerializedObject(script);
         so.FindProperty("background").objectReferenceValue = img;
-        so.FindProperty("coordLabel").objectReferenceValue = tmp;
+        so.FindProperty("coordLabel").objectReferenceValue = coordTmp;
+        so.FindProperty("arrowLabel").objectReferenceValue = arrowTmp;
         so.ApplyModifiedPropertiesWithoutUndo();
 
         PrefabUtility.SaveAsPrefabAsset(go, GridCellPath);

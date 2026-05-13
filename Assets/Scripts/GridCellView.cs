@@ -7,23 +7,43 @@ public class GridCellView : MonoBehaviour, IPointerDownHandler, IPointerEnterHan
 {
     [SerializeField] private Image background;
     [SerializeField] private TMP_Text coordLabel;
+    [SerializeField] private TMP_Text arrowLabel;
 
     private LevelEditorUI ui;
     private int gx, gy;
 
-    public void Setup(LevelEditorUI ui, int gx, int gy, Color bg)
+    static readonly string[] Arrows = { "↑", "↓", "←", "→" };
+
+    public void Setup(LevelEditorUI ui, int gx, int gy, Color bg, bool showArrow, int dir)
     {
         this.ui = ui;
         this.gx = gx;
         this.gy = gy;
 
         if (background != null) background.color = bg;
+
+        float lum = 0.299f * bg.r + 0.587f * bg.g + 0.114f * bg.b;
+        float v = lum > 0.5f ? 0f : 1f;
+        Color textCol = new Color(v, v, v, 0.55f);
+
         if (coordLabel != null)
         {
             coordLabel.text = $"{gx},{gy}";
-            float lum = 0.299f * bg.r + 0.587f * bg.g + 0.114f * bg.b;
-            float v = lum > 0.5f ? 0f : 1f;
-            coordLabel.color = new Color(v, v, v, 0.55f);
+            coordLabel.color = textCol;
+        }
+
+        if (arrowLabel != null)
+        {
+            if (showArrow && dir >= 0 && dir < Arrows.Length)
+            {
+                arrowLabel.gameObject.SetActive(true);
+                arrowLabel.text = Arrows[dir];
+                arrowLabel.color = new Color(v, v, v, 0.95f);
+            }
+            else
+            {
+                arrowLabel.gameObject.SetActive(false);
+            }
         }
     }
 

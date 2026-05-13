@@ -8,27 +8,16 @@ public class CardsSpawner : MonoBehaviour
     [SerializeField] public Transform boardTransform;
 
     [Header("Layout")]
-    [Tooltip("Espaciado horizontal (X) entre centros de columnas de cartas")]
+    [Tooltip("Distancia entre centros de celdas vecinas (lado largo de la carta)")]
     [SerializeField] public float spacingX = 0.8f;
-    [Tooltip("Espaciado vertical (Z) entre centros de cartas")]
+    [Tooltip("Distancia entre cartas apiladas dentro de un chunk (lado corto)")]
     [SerializeField] public float spacingZ = 0.2f;
     [Tooltip("Margen alrededor del grid en el Board")]
     [SerializeField] public float margin = 1f;
 
-    // Cada celda = 1 columna de 4 cartas alineadas en Z.
-    // SlotX = spacingX (1 carta de ancho por celda).
-    // SlotZ = 4 * spacingZ para que las cartas entre celdas verticales conserven spacingZ.
+    // Slots cuadrados: chunks vecinos en X o Z quedan a la misma distancia.
     private float SlotX => spacingX;
-    private float SlotZ => spacingZ * 4f;
-
-    // 4 cartas en columna a lo largo del eje Z, todas con la misma X
-    private static readonly Vector2[] Offsets =
-    {
-        new Vector2(0f, -1.5f),
-        new Vector2(0f, -0.5f),
-        new Vector2(0f,  0.5f),
-        new Vector2(0f,  1.5f),
-    };
+    private float SlotZ => spacingX;
 
     public void SpawnCards()
     {
@@ -36,7 +25,6 @@ public class CardsSpawner : MonoBehaviour
         if (levelData == null || cardPrefab == null || levelData.cells == null || levelData.cells.Count == 0)
             return;
 
-        // Bounding box del nivel en coordenadas de grilla
         int minX = int.MaxValue, maxX = int.MinValue;
         int minY = int.MaxValue, maxY = int.MinValue;
         foreach (var cell in levelData.cells)
@@ -50,11 +38,9 @@ public class CardsSpawner : MonoBehaviour
         float gridW = (maxX - minX + 1) * SlotX;
         float gridH = (maxY - minY + 1) * SlotZ;
 
-        // Centro del nivel en coordenadas del mundo (relativo a este transform)
         float centerX = (minX + maxX) * 0.5f * SlotX;
         float centerZ = (minY + maxY) * 0.5f * SlotZ;
 
-        // Escalar y reposicionar el Board para que contenga el grid + margen
         if (boardTransform != null)
         {
             Vector3 s = boardTransform.localScale;
@@ -68,32 +54,32 @@ public class CardsSpawner : MonoBehaviour
             boardTransform.position = p;
         }
 
-        // Instanciar 4 cartas por cada celda pintada
+        // 4 offsets relativos dentro de un slot (centrados en 0)
+        float[] order = { -1.5f, -0.5f, 0.5f, 1.5f };
+
         foreach (var cell in levelData.cells)
         {
             Color color = new Color(cell.r, cell.g, cell.b, 1f);
 
-            // Centro del slot en espacio local (centrado en el grid).
-            // Z invertido: editor fila 0 (arriba) → +Z mundo (arriba en pantalla con la cámara actual).
+            // Editor coords → mundo (Y top-left, Z arriba en pantalla)
             float sx = cell.x * SlotX - centerX;
             float sz = centerZ - cell.y * SlotZ;
 
-            foreach (var offset in Offsets)
+            bool horizontal = (cell.dir == (int)CellDirection.Left || cell.dir == (int)CellDirection.Right);
+            // Chunks horizontales: rotar 90° en Y para que el lado largo siga
+            // la dirección del chunk. El stacking interno usa siempre spacingZ.
+            Quaternion rot = horizontal ? Quaternion.Euler(0f, 90f, 0f) : Quaternion.identity;
+
+            for (int i = 0; i < 4; i++)
             {
-                Vector3 localPos = new Vector3(
-                    sx + offset.x * spacingX,
-                    0f,
-                    sz + offset.y * spacingZ
-                );
+                float ox = horizontal ? order[i] * spacingZ : 0f;
+                float oz = horizontal ? 0f : order[i] * spacingZ;
+
+                Vector3 localPos = new Vector3(sx + ox, 0f, sz + oz);
                 Vector3 worldPos = transform.TransformPoint(localPos);
                 worldPos.y = 0.5f;
 
-                GameObject card = Instantiate(
-                    cardPrefab,
-                    worldPos,
-                    Quaternion.identity,
-                    transform
-                );
+                GameObject card = Instantiate(cardPrefab, worldPos, rot, transform);
 
                 MeshRenderer mr = card.GetComponentInChildren<MeshRenderer>();
                 if (mr != null)

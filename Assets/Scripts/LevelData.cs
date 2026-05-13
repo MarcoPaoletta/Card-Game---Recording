@@ -2,53 +2,70 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-// Cada celda pintada del nivel (coordenadas enteras + color)
+public enum CellDirection { Up = 0, Down = 1, Left = 2, Right = 3 }
+
 [Serializable]
 public class CellEntry
 {
     public int x, y;
     public float r, g, b;
+    public int dir;     // CellDirection as int (sirve para JsonUtility)
+    public bool isEnd;  // true si esta celda es el final del chunk (recibe la flecha)
 }
 
-// ScriptableObject que guarda los datos de un nivel
 [CreateAssetMenu(fileName = "LevelData", menuName = "CardGame/Level Data")]
 public class LevelData : ScriptableObject
 {
     public string levelName = "Nivel 1";
     public List<CellEntry> cells = new List<CellEntry>();
 
-    // Devuelve true + color si la celda (x,y) está pintada
-    public bool TryGetColor(int x, int y, out Color color)
+    public bool TryGet(int x, int y, out CellEntry entry)
     {
         foreach (var c in cells)
         {
-            if (c.x == x && c.y == y)
-            {
-                color = new Color(c.r, c.g, c.b, 1f);
-                return true;
-            }
+            if (c.x == x && c.y == y) { entry = c; return true; }
+        }
+        entry = null;
+        return false;
+    }
+
+    public bool TryGetColor(int x, int y, out Color color)
+    {
+        if (TryGet(x, y, out var c))
+        {
+            color = new Color(c.r, c.g, c.b, 1f);
+            return true;
         }
         color = Color.clear;
         return false;
     }
 
-    // Pinta o borra una celda (color con a < 0.01 = borrar)
-    public void SetCell(int x, int y, Color color)
+    public void SetCell(int x, int y, Color color, CellDirection dir = CellDirection.Right, bool isEnd = false)
     {
         if (color.a < 0.01f)
         {
             cells.RemoveAll(c => c.x == x && c.y == y);
             return;
         }
-        foreach (var c in cells)
+        if (TryGet(x, y, out var existing))
         {
-            if (c.x == x && c.y == y)
-            {
-                c.r = color.r; c.g = color.g; c.b = color.b;
-                return;
-            }
+            existing.r = color.r; existing.g = color.g; existing.b = color.b;
+            existing.dir = (int)dir;
+            existing.isEnd = isEnd;
+            return;
         }
-        cells.Add(new CellEntry { x = x, y = y, r = color.r, g = color.g, b = color.b });
+        cells.Add(new CellEntry
+        {
+            x = x, y = y,
+            r = color.r, g = color.g, b = color.b,
+            dir = (int)dir,
+            isEnd = isEnd,
+        });
+    }
+
+    public void EraseCell(int x, int y)
+    {
+        cells.RemoveAll(c => c.x == x && c.y == y);
     }
 
     public void Clear() => cells.Clear();
