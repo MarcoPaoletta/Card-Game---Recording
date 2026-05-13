@@ -17,6 +17,10 @@ public class BoardResizerManager : MonoBehaviour
     [Tooltip("Unidades de mundo que cubre el mesh del board con scale=1. Plane primitivo de Unity = 10")]
     [SerializeField] private float meshUnitsPerScale = 10f;
 
+    [Header("Camera")]
+    [Tooltip("Opcional. Si está seteado, se ajusta el zoom de la cámara para que el board entre.")]
+    [SerializeField] private CameraFitterManager cameraFitter;
+
     public float SlotSize => slotSize;
     public float Margin => margin;
 
@@ -67,5 +71,8 @@ public class BoardResizerManager : MonoBehaviour
             p.z = spawnerOrigin.position.z;
             boardTransform.position = p;
         }
+
+        if (cameraFitter != null)
+            cameraFitter.FitTo(gridW + margin * 2f, gridH + margin * 2f);
     }
 }
