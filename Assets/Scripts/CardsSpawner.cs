@@ -86,8 +86,13 @@ public class CardsSpawner : MonoBehaviour
                     transform
                 );
 
-                MeshRenderer mr = card.GetComponent<MeshRenderer>();
-                if (mr != null) mr.material.color = color;
+                MeshRenderer mr = card.GetComponentInChildren<MeshRenderer>();
+                if (mr != null)
+                {
+                    Material mat = mr.materials[0];
+                    if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
+                    else mat.color = color;
+                }
             }
         }
     }
