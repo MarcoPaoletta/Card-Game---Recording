@@ -14,12 +14,22 @@ public class LevelEditorUI : MonoBehaviour
     [Header("Scene refs")]
     [SerializeField] private GameObject builderCanvas;
     [SerializeField] private TMP_Text levelNameText;
+    [SerializeField] private TMP_InputField noteInput;
     [SerializeField] private TMP_Text coordsText;
     [SerializeField] private RectTransform gridContainer;
     [SerializeField] private RectTransform paletteContainer;
     [SerializeField] private Button prevButton;
     [SerializeField] private Button nextButton;
     [SerializeField] private Button saveExitButton;
+    [SerializeField] private Button newLevelButton;
+    [SerializeField] private Button deleteLevelButton;
+    [SerializeField] private Button openLevelsButton;
+
+    [Header("Levels panel")]
+    [SerializeField] private GameObject levelsPanel;
+    [SerializeField] private Button closeLevelsButton;
+    [SerializeField] private RectTransform levelsListContainer;
+    [SerializeField] private LevelRow levelRowTemplate;
 
     [Header("Prefabs")]
     [SerializeField] private PaletteButton paletteButtonPrefab;
@@ -34,16 +44,12 @@ public class LevelEditorUI : MonoBehaviour
 
     private Color selectedColor = Color.red;
 
-    // Repetición al mantener tecla
     private float panCooldown;
     private const float PanInitialDelay  = 0.30f;
     private const float PanRepeatInterval = 0.07f;
 
-    // Pan con rueda del mouse (middle button drag)
     private Vector2 mousePanAccum;
 
-    // ── Estado de drag para line-paint ────────────────────────────────────
-    // dragMode: 0 = nada, 1 = pintar (left), 2 = borrar (right)
     private int dragMode;
     private Vector2Int dragStart;
     private Vector2Int dragCurrent;
@@ -55,9 +61,21 @@ public class LevelEditorUI : MonoBehaviour
         viewOffsetX = 0;
         viewOffsetY = 0;
 
-        if (prevButton     != null) prevButton.onClick.AddListener(()     => manager?.PrevLevel());
-        if (nextButton     != null) nextButton.onClick.AddListener(()     => manager?.NextLevel());
-        if (saveExitButton != null) saveExitButton.onClick.AddListener(() => manager?.ToggleBuilderMode());
+        if (prevButton        != null) prevButton.onClick.AddListener(()        => manager?.PrevLevel());
+        if (nextButton        != null) nextButton.onClick.AddListener(()        => manager?.NextLevel());
+        if (saveExitButton    != null) saveExitButton.onClick.AddListener(()    => manager?.ToggleBuilderMode());
+        if (newLevelButton    != null) newLevelButton.onClick.AddListener(()    => manager?.CreateNewLevel());
+        if (deleteLevelButton != null) deleteLevelButton.onClick.AddListener(() => manager?.DeleteCurrentLevel());
+        if (openLevelsButton  != null) openLevelsButton.onClick.AddListener(OpenLevelsPanel);
+        if (closeLevelsButton != null) closeLevelsButton.onClick.AddListener(CloseLevelsPanel);
+
+        if (levelsPanel != null) levelsPanel.SetActive(false);
+        if (levelRowTemplate != null) levelRowTemplate.gameObject.SetActive(false);
+
+        if (noteInput != null)
+        {
+            noteInput.onEndEdit.AddListener(s => manager?.SetCurrentNote(s));
+        }
 
         BuildPalette();
     }
@@ -127,7 +145,6 @@ public class LevelEditorUI : MonoBehaviour
         if (panDx != 0 || panDy != 0) Pan(panDx, panDy);
     }
 
-    // Detecta release y commit del chunk
     void HandleDragLifecycle()
     {
         var mouse = Mouse.current;
@@ -165,7 +182,6 @@ public class LevelEditorUI : MonoBehaviour
         previewCells.Clear();
         int dx = dragCurrent.x - dragStart.x;
         int dy = dragCurrent.y - dragStart.y;
-        // Snap a eje dominante
         if (Mathf.Abs(dx) >= Mathf.Abs(dy))
         {
             int sign = dx == 0 ? 0 : (dx > 0 ? 1 : -1);
@@ -186,12 +202,10 @@ public class LevelEditorUI : MonoBehaviour
 
         if (dragMode == 2)
         {
-            // Borrar
             foreach (var p in previewCells) levelData.EraseCell(p.x, p.y);
         }
         else
         {
-            // Pintar con dirección
             int dx = dragCurrent.x - dragStart.x;
             int dy = dragCurrent.y - dragStart.y;
             CellDirection dir;
@@ -199,7 +213,6 @@ public class LevelEditorUI : MonoBehaviour
                 dir = dx >= 0 ? CellDirection.Right : CellDirection.Left;
             else
                 dir = dy > 0 ? CellDirection.Down : CellDirection.Up;
-            // Nota: con origen top-left, dy > 0 = hacia abajo = "Down"
 
             var endCell = previewCells[previewCells.Count - 1];
             foreach (var p in previewCells)
@@ -211,6 +224,7 @@ public class LevelEditorUI : MonoBehaviour
 
         ResetDrag();
         RefreshGrid();
+        manager?.AutoSave();
     }
 
     void ResetDrag()
@@ -237,8 +251,52 @@ public class LevelEditorUI : MonoBehaviour
     {
         if (levelNameText != null && levelData != null)
             levelNameText.text = levelData.levelName;
+        if (noteInput != null && manager != null)
+            noteInput.SetTextWithoutNotify(manager.GetCurrentNote());
         UpdateCoords();
         RefreshGrid();
+        if (levelsPanel != null && levelsPanel.activeSelf) RefreshLevelsList();
+    }
+
+    public void OpenLevelsPanel()
+    {
+        if (levelsPanel == null) return;
+        levelsPanel.SetActive(true);
+        RefreshLevelsList();
+    }
+
+    public void CloseLevelsPanel()
+    {
+        if (levelsPanel != null) levelsPanel.SetActive(false);
+    }
+
+    void RefreshLevelsList()
+    {
+        if (levelsListContainer == null || levelRowTemplate == null || manager == null) return;
+
+        for (int i = levelsListContainer.childCount - 1; i >= 0; i--)
+        {
+            var child = levelsListContainer.GetChild(i).gameObject;
+            if (child == levelRowTemplate.gameObject) continue;
+            Destroy(child);
+        }
+
+        int count = manager.LevelCount;
+        int current = manager.CurrentLevelIndex;
+        for (int i = 0; i < count; i++)
+        {
+            int idx = i;
+            var row = Instantiate(levelRowTemplate, levelsListContainer);
+            row.gameObject.SetActive(true);
+            row.Setup(
+                label: manager.GetLevelDisplayName(idx),
+                isCurrent: idx == current,
+                canMoveUp: idx > 0,
+                canMoveDown: idx < count - 1,
+                onSelect: () => manager.SelectLevel(idx),
+                onUp:     () => manager.MoveLevelUp(idx),
+                onDown:   () => manager.MoveLevelDown(idx));
+        }
     }
 
     void UpdateCoords()
@@ -264,7 +322,6 @@ public class LevelEditorUI : MonoBehaviour
         }
     }
 
-    // Calcula la dirección provisional del preview durante el drag
     int PreviewDir()
     {
         int dx = dragCurrent.x - dragStart.x;
@@ -280,7 +337,6 @@ public class LevelEditorUI : MonoBehaviour
         for (int i = gridContainer.childCount - 1; i >= 0; i--)
             Destroy(gridContainer.GetChild(i).gameObject);
 
-        // Set de celdas en preview para lookup rápido
         Vector2Int previewEnd = previewCells.Count > 0 ? previewCells[previewCells.Count - 1] : new Vector2Int(int.MinValue, int.MinValue);
         var previewSet = new HashSet<Vector2Int>(previewCells);
         int previewDir = previewCells.Count > 0 ? PreviewDir() : 0;
