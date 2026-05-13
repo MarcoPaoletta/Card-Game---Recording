@@ -5311,7 +5311,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 646e2c76f72ede2499dae5db0e3d36fd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CardsSpawner
-  cardPrefab: {fileID: 5257244995282828516, guid: 9c52939896e51e3478ceb970008593fa, type: 3}
+  cardPrefab: {fileID: 5183012121828348049, guid: 9c52939896e51e3478ceb970008593fa, type: 3}
   levelData: {fileID: 11400000, guid: e8a664ae824d503428b69dfe7a3b5b47, type: 2}
   boardResizer: {fileID: 2132096991}
   spacingX: 0.8
