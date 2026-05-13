@@ -9,14 +9,14 @@ public class GridCellView : MonoBehaviour, IPointerDownHandler, IPointerEnterHan
     [SerializeField] private TMP_Text coordLabel;
     [SerializeField] private TMP_Text arrowLabel;
 
-    private LevelEditorUI ui;
+    private GridView grid;
     private int gx, gy;
 
     static readonly string[] Arrows = { "↑", "↓", "←", "→" };
 
-    public void Setup(LevelEditorUI ui, int gx, int gy, Color bg, bool showArrow, int dir)
+    public void Setup(GridView grid, int gx, int gy, Color bg, bool showArrow, int dir)
     {
-        this.ui = ui;
+        this.grid = grid;
         this.gx = gx;
         this.gy = gy;
 
@@ -49,13 +49,13 @@ public class GridCellView : MonoBehaviour, IPointerDownHandler, IPointerEnterHan
 
     public void OnPointerDown(PointerEventData e)
     {
-        if (ui == null) return;
-        if (e.button == PointerEventData.InputButton.Right) ui.OnCellPointerDown(gx, gy, true);
-        else if (e.button == PointerEventData.InputButton.Left) ui.OnCellPointerDown(gx, gy, false);
+        if (grid == null) return;
+        if (e.button == PointerEventData.InputButton.Right) grid.OnCellPointerDown(gx, gy, true);
+        else if (e.button == PointerEventData.InputButton.Left) grid.OnCellPointerDown(gx, gy, false);
     }
 
     public void OnPointerEnter(PointerEventData e)
     {
-        if (ui != null) ui.OnCellPointerEnter(gx, gy);
+        if (grid != null) grid.OnCellPointerEnter(gx, gy);
     }
 }

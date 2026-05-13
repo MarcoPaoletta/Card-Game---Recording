@@ -8,7 +8,7 @@ public class BoardResizerManager : MonoBehaviour
     [SerializeField] private Transform spawnerOrigin;
 
     [Header("Layout")]
-    [Tooltip("Distancia entre centros de celdas vecinas en X (mismo valor que CardsSpawner.spacingX)")]
+    [Tooltip("Distancia entre centros de celdas vecinas en X (mismo valor que CardsSpawnerManager.spacingX)")]
     [SerializeField] private float slotSize = 0.8f;
     [Tooltip("Margen extra alrededor del grid (en unidades de mundo)")]
     [SerializeField] private float margin = 0.4f;

@@ -1,27 +1,36 @@
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 public class LevelBuilderManager : MonoBehaviour
 {
     [SerializeField] private LevelEditorUI editorUI;
-    [SerializeField] private CardsSpawner spawner;
-    [SerializeField] private LevelData levelData;
+    [SerializeField] private CardsSpawnerManager spawner;
+    [Tooltip("SO de proyecto usado como semilla; en runtime se clona para no mutar el asset.")]
+    [FormerlySerializedAs("levelData")]
+    [SerializeField] private LevelData levelDataAsset;
 
+    private LevelData levelData;
+    private LevelStore store;
     private bool inBuilderMode;
     private int currentLevelIndex;
     private int levelCount;
-    private string savePath;
 
     public int CurrentLevelIndex => currentLevelIndex;
     public int LevelCount => levelCount;
+    public LevelData LevelData => levelData;
 
     void Awake()
     {
-        savePath = Path.Combine(Application.persistentDataPath, "Levels");
-        Directory.CreateDirectory(savePath);
-        RefreshLevelCount();
+        levelData = Instantiate(levelDataAsset);
+        levelData.cells = new List<CellEntry>();
+
+        store = new LevelStore();
+        levelCount = store.Count();
+
+        if (spawner != null) spawner.OverrideLevelData(levelData);
+        if (editorUI != null) editorUI.OverrideLevelData(levelData);
     }
 
     void Start()
@@ -57,14 +66,6 @@ public class LevelBuilderManager : MonoBehaviour
         }
     }
 
-    void RefreshLevelCount()
-    {
-        levelCount = 0;
-        while (File.Exists(LevelFile(levelCount))) levelCount++;
-    }
-
-    string LevelFile(int index) => Path.Combine(savePath, $"level_{index}.json");
-
     private const string Separator = " - ";
 
     static string BuildName(int index, string note)
@@ -88,9 +89,9 @@ public class LevelBuilderManager : MonoBehaviour
     {
         if (index == currentLevelIndex && levelData != null)
             return BuildName(index, ParseNote(levelData.levelName));
-        string f = LevelFile(index);
-        if (!File.Exists(f)) return BuildName(index, "");
-        var peek = JsonUtility.FromJson<LevelNamePeek>(File.ReadAllText(f));
+        string json = store.Read(index);
+        if (string.IsNullOrEmpty(json)) return BuildName(index, "");
+        var peek = JsonUtility.FromJson<LevelNamePeek>(json);
         return BuildName(index, ParseNote(peek != null ? peek.levelName : null));
     }
 
@@ -108,15 +109,15 @@ public class LevelBuilderManager : MonoBehaviour
         var tmp = ScriptableObject.CreateInstance<LevelData>();
         tmp.levelName = BuildName(index, "");
         tmp.cells = new List<CellEntry>();
-        File.WriteAllText(LevelFile(index), JsonUtility.ToJson(tmp));
-        Object.Destroy(tmp);
+        store.Write(index, JsonUtility.ToJson(tmp));
+        Destroy(tmp);
     }
 
     public void SaveCurrentLevel()
     {
         if (levelData == null) return;
         levelData.levelName = BuildName(currentLevelIndex, ParseNote(levelData.levelName));
-        File.WriteAllText(LevelFile(currentLevelIndex), JsonUtility.ToJson(levelData));
+        store.Write(currentLevelIndex, JsonUtility.ToJson(levelData));
     }
 
     public void LoadLevel(int index)
@@ -124,11 +125,11 @@ public class LevelBuilderManager : MonoBehaviour
         if (index < 0) index = 0;
         if (index >= levelCount) index = Mathf.Max(0, levelCount - 1);
 
-        string file = LevelFile(index);
+        string json = store.Read(index);
         string note = "";
-        if (File.Exists(file))
+        if (!string.IsNullOrEmpty(json))
         {
-            JsonUtility.FromJsonOverwrite(File.ReadAllText(file), levelData);
+            JsonUtility.FromJsonOverwrite(json, levelData);
             note = ParseNote(levelData.levelName);
         }
         else
@@ -168,28 +169,18 @@ public class LevelBuilderManager : MonoBehaviour
     public void DeleteCurrentLevel()
     {
         if (levelCount <= 1) return;
-
-        for (int i = currentLevelIndex; i < levelCount - 1; i++)
-        {
-            string src = LevelFile(i + 1);
-            string dst = LevelFile(i);
-            if (File.Exists(dst)) File.Delete(dst);
-            File.Move(src, dst);
-        }
+        store.Delete(currentLevelIndex, levelCount);
         levelCount--;
         int next = Mathf.Min(currentLevelIndex, levelCount - 1);
         LoadLevel(next);
         editorUI.Refresh();
     }
 
-    public void MoveCurrentLevelUp() => MoveLevelUp(currentLevelIndex);
-    public void MoveCurrentLevelDown() => MoveLevelDown(currentLevelIndex);
-
     public void MoveLevelUp(int index)
     {
         if (index <= 0 || index >= levelCount) return;
         SaveCurrentLevel();
-        SwapLevels(index, index - 1);
+        store.Swap(index, index - 1);
         if (currentLevelIndex == index) LoadLevel(index - 1);
         else if (currentLevelIndex == index - 1) LoadLevel(index);
         editorUI.Refresh();
@@ -199,7 +190,7 @@ public class LevelBuilderManager : MonoBehaviour
     {
         if (index < 0 || index >= levelCount - 1) return;
         SaveCurrentLevel();
-        SwapLevels(index, index + 1);
+        store.Swap(index, index + 1);
         if (currentLevelIndex == index) LoadLevel(index + 1);
         else if (currentLevelIndex == index + 1) LoadLevel(index);
         editorUI.Refresh();
@@ -213,18 +204,5 @@ public class LevelBuilderManager : MonoBehaviour
         editorUI.Refresh();
     }
 
-    void SwapLevels(int a, int b)
-    {
-        string fa = LevelFile(a);
-        string fb = LevelFile(b);
-        string ta = File.Exists(fa) ? File.ReadAllText(fa) : "";
-        string tb = File.Exists(fb) ? File.ReadAllText(fb) : "";
-        File.WriteAllText(fa, tb);
-        File.WriteAllText(fb, ta);
-    }
-
-    public void AutoSave()
-    {
-        SaveCurrentLevel();
-    }
+    public void AutoSave() => SaveCurrentLevel();
 }

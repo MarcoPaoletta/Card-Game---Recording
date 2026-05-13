@@ -1,11 +1,13 @@
 using UnityEngine;
 
-public class CardsSpawner : MonoBehaviour
+public class CardsSpawnerManager : MonoBehaviour
 {
     [Header("Referencias")]
     [SerializeField] public GameObject cardPrefab;
     [SerializeField] public LevelData levelData;
     [SerializeField] public BoardResizerManager boardResizer;
+
+    public void OverrideLevelData(LevelData runtime) { levelData = runtime; }
 
     [Header("Layout")]
     [Tooltip("Distancia entre centros de celdas vecinas (lado largo de la carta)")]
