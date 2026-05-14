@@ -234,7 +234,7 @@ public class CardsSpawnerManager : MonoBehaviour
                 var prev = cur + back;
                 if (lookup.TryGetValue(prev, out var p)
                     && p.dir == endCell.dir
-                    && SameColor(p, endCell)
+                    && ColorUtil.ApproximatelyEqual(new Color(p.r, p.g, p.b), new Color(endCell.r, endCell.g, endCell.b))
                     && !p.isEnd)
                 {
                     chunkCells.Add(prev);
@@ -245,14 +245,6 @@ public class CardsSpawnerManager : MonoBehaviour
             chunkCells.Reverse();
             yield return new ChunkInfo { direction = dir, cells = chunkCells };
         }
-    }
-
-    static bool SameColor(CellEntry a, CellEntry b)
-    {
-        const float eps = 0.01f;
-        return Mathf.Abs(a.r - b.r) < eps
-            && Mathf.Abs(a.g - b.g) < eps
-            && Mathf.Abs(a.b - b.b) < eps;
     }
 
     static Quaternion CardRotation(CellDirection d)

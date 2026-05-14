@@ -48,7 +48,7 @@ public class LevelFlowManager : MonoBehaviour
         var firstSeen = new List<Color>();
         foreach (var c in cells)
         {
-            var key = QuantizeColor(new Color(c.r, c.g, c.b, 1f));
+            var key = ColorUtil.Quantize(new Color(c.r, c.g, c.b, 1f));
             if (!cellsByColor.ContainsKey(key))
             {
                 cellsByColor[key] = 0;
@@ -104,12 +104,4 @@ public class LevelFlowManager : MonoBehaviour
         if (IsLevelComplete) OnLevelComplete?.Invoke();
     }
 
-    static Color QuantizeColor(Color c)
-    {
-        return new Color(
-            Mathf.Round(c.r * 100f) / 100f,
-            Mathf.Round(c.g * 100f) / 100f,
-            Mathf.Round(c.b * 100f) / 100f,
-            1f);
-    }
 }

@@ -51,18 +51,10 @@ public class Order : MonoBehaviour
     public Transform AcquireNextSlot(Color cardColor)
     {
         if (IsFull || slots == null) return null;
-        if (!ColorsApproximatelyEqual(cardColor, color)) return null;
+        if (!ColorUtil.ApproximatelyEqual(cardColor, color)) return null;
         var s = slots[reservedCount];
         reservedCount++;
         return s;
-    }
-
-    static bool ColorsApproximatelyEqual(Color a, Color b)
-    {
-        const float eps = 0.01f;
-        return Mathf.Abs(a.r - b.r) < eps
-            && Mathf.Abs(a.g - b.g) < eps
-            && Mathf.Abs(a.b - b.b) < eps;
     }
 
     public void NotifyDelivered()

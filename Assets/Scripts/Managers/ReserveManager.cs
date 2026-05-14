@@ -125,7 +125,7 @@ public class ReserveManager : MonoBehaviour
         for (int i = reserved.Count - 1; i >= 0 && !order.IsFull; i--)
         {
             var e = reserved[i];
-            if (!ColorsApproximatelyEqual(e.color, color)) continue;
+            if (!ColorUtil.ApproximatelyEqual(e.color, color)) continue;
             if (e.card == null)
             {
                 // Carta todavia en vuelo hacia el reserve: NO tocar el slot.
@@ -195,11 +195,4 @@ public class ReserveManager : MonoBehaviour
         }
     }
 
-    static bool ColorsApproximatelyEqual(Color a, Color b)
-    {
-        const float eps = 0.01f;
-        return Mathf.Abs(a.r - b.r) < eps
-            && Mathf.Abs(a.g - b.g) < eps
-            && Mathf.Abs(a.b - b.b) < eps;
-    }
 }

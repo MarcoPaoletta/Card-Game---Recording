@@ -164,10 +164,7 @@ public class LevelData : ScriptableObject
 
     static bool SameColor(CellEntry a, CellEntry b)
     {
-        const float eps = 0.01f;
-        return Mathf.Abs(a.r - b.r) < eps
-            && Mathf.Abs(a.g - b.g) < eps
-            && Mathf.Abs(a.b - b.b) < eps;
+        return ColorUtil.ApproximatelyEqual(new Color(a.r, a.g, a.b), new Color(b.r, b.g, b.b));
     }
 
     static Vector2Int StepFromDir(CellDirection d)
