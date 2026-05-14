@@ -16,6 +16,7 @@ public class Chunk : MonoBehaviour
 
     private CardsSpawnerManager spawner;
     private OrdersManager ordersManager;
+    private ReserveManager reserveManager;
     private CellDirection direction;
     private List<Vector2Int> cells;
     private Vector3 originalPosition;
@@ -26,10 +27,11 @@ public class Chunk : MonoBehaviour
     public bool IsInteractable => isInteractable;
     public Color Color { get; private set; }
 
-    public void Init(CardsSpawnerManager spawner, OrdersManager orders, CellDirection dir, List<Vector2Int> cells, Color color)
+    public void Init(CardsSpawnerManager spawner, OrdersManager orders, ReserveManager reserve, CellDirection dir, List<Vector2Int> cells, Color color)
     {
         this.spawner = spawner;
         this.ordersManager = orders;
+        this.reserveManager = reserve;
         this.direction = dir;
         this.cells = cells;
         this.Color = color;
@@ -79,9 +81,15 @@ public class Chunk : MonoBehaviour
             Order targetOrder = assign.order;
             Transform targetSlot = assign.slot;
 
-            Vector3 cardTarget = targetSlot != null
-                ? targetSlot.position
-                : card.position + dirVec * distance;
+            // Si no hay order disponible (lleno o color distinto), mandar al reserve.
+            Transform reserveSlot = null;
+            if (targetSlot == null && reserveManager != null)
+                reserveSlot = reserveManager.AcquireSlot(this.Color);
+
+            Vector3 cardTarget;
+            if (targetSlot != null) cardTarget = targetSlot.position;
+            else if (reserveSlot != null) cardTarget = reserveSlot.position;
+            else cardTarget = card.position + dirVec * distance;
 
             var seq = DOTween.Sequence();
             if (delay > 0f) seq.AppendInterval(delay);
@@ -94,6 +102,10 @@ public class Chunk : MonoBehaviour
                     card.localPosition = Vector3.zero;
                     card.localRotation = Quaternion.identity;
                     targetOrder.NotifyDelivered();
+                }
+                else if (reserveSlot != null && card != null && reserveManager != null)
+                {
+                    reserveManager.AttachCardToSlot(reserveSlot, card);
                 }
                 else if (card != null)
                 {

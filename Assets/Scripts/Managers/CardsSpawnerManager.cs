@@ -11,6 +11,8 @@ public class CardsSpawnerManager : MonoBehaviour
     [SerializeField] public LevelData levelData;
     [SerializeField] public BoardResizerManager boardResizer;
     [SerializeField] public OrdersManager ordersManager;
+    [SerializeField] public LevelFlowManager levelFlow;
+    [SerializeField] public ReserveManager reserveManager;
 
     public void OverrideLevelData(LevelData runtime) { levelData = runtime; }
 
@@ -36,6 +38,11 @@ public class CardsSpawnerManager : MonoBehaviour
     {
         ClearCards();
         chunks.Clear();
+
+        // Reset de orders, reserve y plan de flujo para el nuevo nivel.
+        if (ordersManager != null) ordersManager.ResetForLevel();
+        if (reserveManager != null) reserveManager.Clear();
+        if (levelFlow != null) levelFlow.Initialize(levelData != null ? levelData.cells : null);
 
         if (levelData == null || cardPrefab == null || levelData.cells == null || levelData.cells.Count == 0)
             return;
@@ -102,56 +109,9 @@ public class CardsSpawnerManager : MonoBehaviour
             AddChunkCollider(chunkGO);
             var firstEntry = lookup[chunkInfo.cells[0]];
             Color chunkColor = new Color(firstEntry.r, firstEntry.g, firstEntry.b, 1f);
-            chunk.Init(this, ordersManager, chunkInfo.direction, chunkInfo.cells, chunkColor);
+            chunk.Init(this, ordersManager, reserveManager, chunkInfo.direction, chunkInfo.cells, chunkColor);
             chunks.Add(chunk);
         }
-
-        AssignOrderColors();
-    }
-
-    void AssignOrderColors()
-    {
-        if (ordersManager == null || levelData == null || levelData.cells == null) return;
-
-        // Contar celdas por color (RGB cuantizado para evitar drift por floats).
-        var cellsByColor = new Dictionary<Color, int>();
-        var firstSeenOrder = new List<Color>();
-        foreach (var cell in levelData.cells)
-        {
-            Color key = QuantizeColor(new Color(cell.r, cell.g, cell.b, 1f));
-            if (!cellsByColor.ContainsKey(key))
-            {
-                cellsByColor[key] = 0;
-                firstSeenOrder.Add(key);
-            }
-            cellsByColor[key]++;
-        }
-
-        // Construir lista expandida: cada color aparece (cells/2) veces.
-        // 2 celdas = 8 cartas = 1 orden de ese color.
-        var expanded = new List<Color>();
-        foreach (var color in firstSeenOrder)
-        {
-            int ordersForColor = cellsByColor[color] / 2;
-            for (int i = 0; i < ordersForColor; i++) expanded.Add(color);
-        }
-
-        int sceneOrderCount = ordersManager.OrderCount;
-        if (expanded.Count != sceneOrderCount)
-        {
-            Debug.LogWarning($"[CardsSpawnerManager] Order count mismatch: level needs {expanded.Count} orders but scene has {sceneOrderCount}.");
-        }
-
-        if (expanded.Count > 0) ordersManager.AssignColors(expanded);
-    }
-
-    static Color QuantizeColor(Color c)
-    {
-        return new Color(
-            Mathf.Round(c.r * 100f) / 100f,
-            Mathf.Round(c.g * 100f) / 100f,
-            Mathf.Round(c.b * 100f) / 100f,
-            1f);
     }
 
     void AddChunkCollider(GameObject chunkGO)

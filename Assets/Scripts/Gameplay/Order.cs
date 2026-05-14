@@ -95,4 +95,14 @@ public class Order : MonoBehaviour
         reservedCount = 0;
         deliveredCount = 0;
     }
+
+    /// <summary>
+    /// Reset completo para arrancar un nuevo nivel: limpia slots, restaura
+    /// escala original (en caso de que haya quedado abajo de un nivel anterior).
+    /// </summary>
+    public void ResetForLevel()
+    {
+        ResetSlots();
+        if (model != null) model.localScale = originalScale;
+    }
 }

@@ -48,9 +48,23 @@ public class LevelBuilderManager : MonoBehaviour
         ApplyLayoutAndSpawn();
     }
 
+    [Header("Game refs (para reset al cambiar nivel)")]
+    [SerializeField] private OrdersManager ordersManager;
+    [SerializeField] private ReserveManager reserveManager;
+
     void ApplyLayoutAndSpawn()
     {
+        // 1) Reset visual de orders y reserve ANTES del layout para que el
+        //    encuadre de camara use el tamano original de las orders, no la
+        //    escala-0 de las que quedaron ocultas del nivel anterior.
+        if (ordersManager != null) ordersManager.ResetForLevel();
+        if (reserveManager != null) reserveManager.Clear();
+
+        // 2) Layout: board, orders reposicionadas, camara.
         if (levelLayout != null) levelLayout.Layout(levelData != null ? levelData.cells : null);
+
+        // 3) Spawnear cartas (internamente, levelFlow re-asigna colores y
+        //    oculta las orders que no se usan en este nivel).
         if (spawner != null) spawner.SpawnCards();
     }
 
@@ -217,7 +231,7 @@ public class LevelBuilderManager : MonoBehaviour
         if (currentLevelIndex <= 0) return;
         SaveCurrentLevel();
         LoadLevel(currentLevelIndex - 1);
-        editorUI.Refresh();
+        RefreshAfterLevelChange();
     }
 
     public void NextLevel()
@@ -225,7 +239,17 @@ public class LevelBuilderManager : MonoBehaviour
         if (currentLevelIndex >= levelCount - 1) return;
         SaveCurrentLevel();
         LoadLevel(currentLevelIndex + 1);
-        editorUI.Refresh();
+        RefreshAfterLevelChange();
+    }
+
+    /// <summary>
+    /// Si estamos en builder, refresca la UI del editor.
+    /// Si estamos en juego, aplica layout y spawnea cartas del nuevo nivel.
+    /// </summary>
+    void RefreshAfterLevelChange()
+    {
+        if (inBuilderMode) editorUI.Refresh();
+        else ApplyLayoutAndSpawn();
     }
 
     public void CreateNewLevel()

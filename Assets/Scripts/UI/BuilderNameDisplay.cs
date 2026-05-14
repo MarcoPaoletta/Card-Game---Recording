@@ -16,6 +16,8 @@ public class BuilderNameDisplay : MonoBehaviour
     public void Refresh()
     {
         if (manager == null || manager.LevelData == null) return;
+        if (label == null) label = GetComponent<TMP_Text>();
+        if (label == null) return;
         label.text = manager.LevelData.levelName;
     }
 }
