@@ -7,6 +7,7 @@ public class LevelBuilderManager : MonoBehaviour
 {
     [SerializeField] private LevelEditorUI editorUI;
     [SerializeField] private CardsSpawnerManager spawner;
+    [SerializeField] private LevelLayoutManager levelLayout;
     [Tooltip("SO de proyecto usado como semilla; en runtime se clona para no mutar el asset.")]
     [FormerlySerializedAs("levelData")]
     [SerializeField] private LevelData levelDataAsset;
@@ -44,7 +45,13 @@ public class LevelBuilderManager : MonoBehaviour
             levelCount = 1;
         }
         LoadLevel(0);
-        spawner.SpawnCards();
+        ApplyLayoutAndSpawn();
+    }
+
+    void ApplyLayoutAndSpawn()
+    {
+        if (levelLayout != null) levelLayout.Layout(levelData != null ? levelData.cells : null);
+        if (spawner != null) spawner.SpawnCards();
     }
 
     void Update()
@@ -70,7 +77,7 @@ public class LevelBuilderManager : MonoBehaviour
             inBuilderMode = false;
             SaveCurrentLevel();
             editorUI.Hide();
-            spawner.SpawnCards();
+            ApplyLayoutAndSpawn();
         }
     }
 

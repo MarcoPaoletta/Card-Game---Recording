@@ -1,28 +1,42 @@
 using UnityEngine;
 
+/// <summary>
+/// Unica responsabilidad: posicionar y zoomear la camara para encuadrar una
+/// region (XZ) del mundo con un padding dado. No conoce ni board ni orders:
+/// recibe el rectangulo a encuadrar desde LevelLayoutManager.
+/// </summary>
 public class CameraFitterManager : MonoBehaviour
 {
     [Header("Refs")]
     [SerializeField] private Camera cam;
-    [Tooltip("Punto al que la cámara mira (centro del board).")]
-    [SerializeField] private Transform target;
 
-    [Header("Tuning")]
-    [Tooltip("Aire alrededor del board, en unidades de mundo (se agrega a cada lado).")]
-    [SerializeField] private float padding = 0.5f;
+    [Header("Limites de zoom")]
     [SerializeField] private float minSize = 1f;
     [SerializeField] private float maxSize = 50f;
 
-    public void FitTo(float worldWidth, float worldHeight)
+    [Header("Distancia (perspectiva / preservada ortho)")]
+    [Tooltip("Si > 0, se usa como distancia entre la camara y el centro del encuadre. " +
+             "Si <= 0, se preserva la distancia actual de la camara al origen del mundo.")]
+    [SerializeField] private float fixedViewDistance = -1f;
+
+    /// <summary>
+    /// Encuadra la region (XZ) descripta por <paramref name="worldBounds"/>.
+    /// Centra la camara sobre bounds.center (corriendo a lo largo de su forward)
+    /// y ajusta <c>orthographicSize</c> (o distancia en perspectiva) para que
+    /// toda la region entre con <paramref name="padding"/> de aire.
+    /// </summary>
+    public void FitToBounds(Bounds worldBounds, float padding)
     {
-        if (cam == null || target == null) return;
+        if (cam == null) return;
         float pad = Mathf.Max(0f, padding);
 
         Vector3 right = cam.transform.right;
         Vector3 up = cam.transform.up;
+        Vector3 fwd = cam.transform.forward.normalized;
+        Vector3 center = worldBounds.center;
 
-        float hx = worldWidth * 0.5f + pad;
-        float hz = worldHeight * 0.5f + pad;
+        float hx = worldBounds.size.x * 0.5f + pad;
+        float hz = worldBounds.size.z * 0.5f + pad;
         Vector3[] corners = {
             new Vector3(+hx, 0f, +hz),
             new Vector3(-hx, 0f, +hz),
@@ -41,6 +55,11 @@ public class CameraFitterManager : MonoBehaviour
         {
             float requiredSize = Mathf.Max(maxAbsU, maxAbsR / Mathf.Max(0.01f, cam.aspect));
             cam.orthographicSize = Mathf.Clamp(requiredSize, minSize, maxSize);
+
+            float dist = fixedViewDistance > 0f
+                ? fixedViewDistance
+                : Mathf.Max(0.01f, cam.transform.position.magnitude);
+            cam.transform.position = center - fwd * dist;
         }
         else
         {
@@ -49,7 +68,6 @@ public class CameraFitterManager : MonoBehaviour
             float tanV = Mathf.Tan(halfFovV);
             float tanH = Mathf.Tan(halfFovH);
 
-            Vector3 fwd = cam.transform.forward.normalized;
             float requiredDist = minSize;
             foreach (var v in corners)
             {
@@ -61,7 +79,7 @@ public class CameraFitterManager : MonoBehaviour
                 requiredDist = Mathf.Max(requiredDist, dH, dV);
             }
             requiredDist = Mathf.Clamp(requiredDist, minSize, maxSize);
-            cam.transform.position = target.position - fwd * requiredDist;
+            cam.transform.position = center - fwd * requiredDist;
         }
     }
 }

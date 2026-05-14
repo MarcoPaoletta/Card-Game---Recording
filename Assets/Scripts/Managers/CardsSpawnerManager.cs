@@ -37,9 +37,6 @@ public class CardsSpawnerManager : MonoBehaviour
         ClearCards();
         chunks.Clear();
 
-        if (boardResizer != null && levelData != null)
-            boardResizer.ResizeToFit(levelData.cells);
-
         if (levelData == null || cardPrefab == null || levelData.cells == null || levelData.cells.Count == 0)
             return;
 

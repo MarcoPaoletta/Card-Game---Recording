@@ -44,6 +44,68 @@ public class OrdersManager : MonoBehaviour
         return (null, null);
     }
 
+    /// <summary>
+    /// Devuelve el bounding box (XZ) que cubre los renderers de todas las orders.
+    /// </summary>
+    public Bounds GetGroupRenderBounds()
+    {
+        bool any = false;
+        Bounds combined = new Bounds();
+        foreach (var o in orders)
+        {
+            if (o == null) continue;
+            var rs = o.GetComponentsInChildren<Renderer>();
+            foreach (var r in rs)
+            {
+                if (r == null) continue;
+                if (!any) { combined = r.bounds; any = true; }
+                else combined.Encapsulate(r.bounds);
+            }
+            if (!any)
+            {
+                combined = new Bounds(o.transform.position, Vector3.zero);
+                any = true;
+            }
+        }
+        return any ? combined : new Bounds(Vector3.zero, Vector3.zero);
+    }
+
+    /// <summary>
+    /// Traslada el grupo de orders (preservando layout relativo) para que el borde
+    /// mas cercano al board quede a <paramref name="zGap"/> unidades del borde del
+    /// board sobre el eje Z, centrado en X. El lado (positivo/negativo de Z) se
+    /// elige segun donde estan las orders actualmente respecto al board.
+    /// </summary>
+    public void Reposition(Bounds boardBounds, float zGap)
+    {
+        if (orders == null || orders.Count == 0) return;
+        var group = GetGroupRenderBounds();
+        if (group.size == Vector3.zero) return;
+
+        int side = group.center.z >= boardBounds.center.z ? +1 : -1;
+
+        float deltaZ;
+        if (side > 0)
+        {
+            float targetMinZ = boardBounds.max.z + zGap;
+            deltaZ = targetMinZ - group.min.z;
+        }
+        else
+        {
+            float targetMaxZ = boardBounds.min.z - zGap;
+            deltaZ = targetMaxZ - group.max.z;
+        }
+
+        float deltaX = boardBounds.center.x - group.center.x;
+        var offset = new Vector3(deltaX, 0f, deltaZ);
+
+        foreach (var o in orders)
+        {
+            if (o == null) continue;
+            o.transform.position += offset;
+        }
+    }
+
     void HandleOrderFilled(Order order)
     {
         var down = order.PlayScaleDown();
