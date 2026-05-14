@@ -69,4 +69,116 @@ public class LevelData : ScriptableObject
     }
 
     public void Clear() => cells.Clear();
+
+    /// <summary>
+    /// Devuelve todas las celdas del chunk (cadena) que contiene (x,y). Una cadena
+    /// es la secuencia contigua de celdas con misma dir y color a lo largo del eje
+    /// de la dir, delimitada por las celdas con isEnd=true (que marcan el final
+    /// de cada cadena pintada). Es decir, dos commits adyacentes del mismo color+dir
+    /// son cadenas distintas porque cada uno tiene su propio isEnd.
+    /// Orden: de "atras" (contra dir) a "adelante" (a favor de dir, terminando en isEnd).
+    /// </summary>
+    public List<Vector2Int> GetChunkAt(int x, int y)
+    {
+        if (!TryGet(x, y, out var entry)) return null;
+        Vector2Int step = StepFromDir((CellDirection)entry.dir);
+        Vector2Int back = -step;
+        int targetDir = entry.dir;
+
+        // 1) Buscar el isEnd de la cadena: caminamos hacia adelante desde (x,y).
+        //    Si entry ya es isEnd, ese es el end. Si no, avanzamos hasta encontrar uno
+        //    con isEnd o cortar la cadena.
+        Vector2Int endPos = new Vector2Int(x, y);
+        if (!entry.isEnd)
+        {
+            var cur = endPos;
+            while (true)
+            {
+                var next = cur + step;
+                if (TryGet(next.x, next.y, out var n) && n.dir == targetDir && SameColor(n, entry))
+                {
+                    cur = next;
+                    if (n.isEnd) { endPos = cur; break; }
+                }
+                else break;
+            }
+            // Si no encontramos isEnd hacia adelante, la celda es orfana: usamos cur como ancla.
+            if (!TryGet(endPos.x, endPos.y, out var e0) || !e0.isEnd)
+                endPos = cur;
+        }
+
+        // 2) Caminar hacia atras desde endPos. El walk se corta al chocar con
+        //    otro isEnd (eso es el final de una cadena previa, no parte de esta).
+        var chain = new List<Vector2Int> { endPos };
+        var c = endPos;
+        while (true)
+        {
+            var prev = c + back;
+            if (TryGet(prev.x, prev.y, out var p) && p.dir == targetDir && SameColor(p, entry) && !p.isEnd)
+            {
+                chain.Insert(0, prev);
+                c = prev;
+            }
+            else break;
+        }
+
+        return chain;
+    }
+
+    public void EraseChunkAt(int x, int y)
+    {
+        var chunk = GetChunkAt(x, y);
+        if (chunk == null) return;
+        foreach (var p in chunk)
+            cells.RemoveAll(c => c.x == p.x && c.y == p.y);
+    }
+
+    /// <summary>
+    /// Para cada celda semilla, recalcula la cadena (misma dir + color) y deja
+    /// isEnd=true solamente en la celda mas "adelantada" (a favor de la dir).
+    /// </summary>
+    public void NormalizeChunksAt(IEnumerable<Vector2Int> seeds)
+    {
+        var visited = new HashSet<Vector2Int>();
+        foreach (var seed in seeds)
+        {
+            if (visited.Contains(seed)) continue;
+            var chain = GetChunkAt(seed.x, seed.y);
+            if (chain == null) continue;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                visited.Add(chain[i]);
+                if (TryGet(chain[i].x, chain[i].y, out var e))
+                    e.isEnd = (i == chain.Count - 1);
+            }
+        }
+    }
+
+    /// <summary>Normaliza todas las cadenas del nivel (util al cargar).</summary>
+    public void NormalizeAllChunks()
+    {
+        var seeds = new List<Vector2Int>(cells.Count);
+        foreach (var c in cells) seeds.Add(new Vector2Int(c.x, c.y));
+        NormalizeChunksAt(seeds);
+    }
+
+    static bool SameColor(CellEntry a, CellEntry b)
+    {
+        const float eps = 0.01f;
+        return Mathf.Abs(a.r - b.r) < eps
+            && Mathf.Abs(a.g - b.g) < eps
+            && Mathf.Abs(a.b - b.b) < eps;
+    }
+
+    static Vector2Int StepFromDir(CellDirection d)
+    {
+        switch (d)
+        {
+            case CellDirection.Right: return new Vector2Int(+1,  0);
+            case CellDirection.Left:  return new Vector2Int(-1,  0);
+            case CellDirection.Down:  return new Vector2Int( 0, +1);
+            case CellDirection.Up:    return new Vector2Int( 0, -1);
+        }
+        return Vector2Int.zero;
+    }
 }
