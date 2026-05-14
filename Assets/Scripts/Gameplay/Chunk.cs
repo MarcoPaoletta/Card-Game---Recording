@@ -75,7 +75,7 @@ public class Chunk : MonoBehaviour
             var card = ordered[i];
             float delay = i * cardStaggerDelay;
 
-            var assign = ordersManager != null ? ordersManager.AcquireNextSlot() : (null, (Transform)null);
+            var assign = ordersManager != null ? ordersManager.AcquireNextSlot(this.Color) : (null, (Transform)null);
             Order targetOrder = assign.order;
             Transform targetSlot = assign.slot;
 

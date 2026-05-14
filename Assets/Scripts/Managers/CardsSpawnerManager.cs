@@ -114,17 +114,47 @@ public class CardsSpawnerManager : MonoBehaviour
 
     void AssignOrderColors()
     {
-        if (ordersManager == null) return;
-        var viable = new List<Color>();
-        var seen = new HashSet<Color>();
-        foreach (var c in chunks)
+        if (ordersManager == null || levelData == null || levelData.cells == null) return;
+
+        // Contar celdas por color (RGB cuantizado para evitar drift por floats).
+        var cellsByColor = new Dictionary<Color, int>();
+        var firstSeenOrder = new List<Color>();
+        foreach (var cell in levelData.cells)
         {
-            if (c == null) continue;
-            var (blocker, _) = CalculateChunkMove(c);
-            if (blocker != null) continue;
-            if (seen.Add(c.Color)) viable.Add(c.Color);
+            Color key = QuantizeColor(new Color(cell.r, cell.g, cell.b, 1f));
+            if (!cellsByColor.ContainsKey(key))
+            {
+                cellsByColor[key] = 0;
+                firstSeenOrder.Add(key);
+            }
+            cellsByColor[key]++;
         }
-        if (viable.Count > 0) ordersManager.AssignColors(viable);
+
+        // Construir lista expandida: cada color aparece (cells/2) veces.
+        // 2 celdas = 8 cartas = 1 orden de ese color.
+        var expanded = new List<Color>();
+        foreach (var color in firstSeenOrder)
+        {
+            int ordersForColor = cellsByColor[color] / 2;
+            for (int i = 0; i < ordersForColor; i++) expanded.Add(color);
+        }
+
+        int sceneOrderCount = ordersManager.OrderCount;
+        if (expanded.Count != sceneOrderCount)
+        {
+            Debug.LogWarning($"[CardsSpawnerManager] Order count mismatch: level needs {expanded.Count} orders but scene has {sceneOrderCount}.");
+        }
+
+        if (expanded.Count > 0) ordersManager.AssignColors(expanded);
+    }
+
+    static Color QuantizeColor(Color c)
+    {
+        return new Color(
+            Mathf.Round(c.r * 100f) / 100f,
+            Mathf.Round(c.g * 100f) / 100f,
+            Mathf.Round(c.b * 100f) / 100f,
+            1f);
     }
 
     void AddChunkCollider(GameObject chunkGO)

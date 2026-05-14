@@ -10,6 +10,8 @@ public class LevelBuilderManager : MonoBehaviour
     [Tooltip("SO de proyecto usado como semilla; en runtime se clona para no mutar el asset.")]
     [FormerlySerializedAs("levelData")]
     [SerializeField] private LevelData levelDataAsset;
+    [Tooltip("Paleta usada para resolver el nombre de cada color al validar el nivel.")]
+    [SerializeField] private ColorPalette palette;
 
     private LevelData levelData;
     private LevelStore store;
@@ -53,17 +55,80 @@ public class LevelBuilderManager : MonoBehaviour
 
     public void ToggleBuilderMode()
     {
-        inBuilderMode = !inBuilderMode;
-        if (inBuilderMode)
+        if (!inBuilderMode)
         {
+            inBuilderMode = true;
             editorUI.Show();
         }
         else
         {
+            if (!ValidateLevel(out string error))
+            {
+                Debug.LogError($"[LevelBuilderManager] No se puede salir del builder:\n{error}");
+                return;
+            }
+            inBuilderMode = false;
             SaveCurrentLevel();
             editorUI.Hide();
             spawner.SpawnCards();
         }
+    }
+
+    bool ValidateLevel(out string error)
+    {
+        error = null;
+        if (levelData == null || levelData.cells == null || levelData.cells.Count == 0)
+            return true;
+
+        var counts = new Dictionary<Color, int>();
+        var firstSeen = new List<Color>();
+        foreach (var cell in levelData.cells)
+        {
+            Color key = QuantizeColor(new Color(cell.r, cell.g, cell.b, 1f));
+            if (!counts.ContainsKey(key))
+            {
+                counts[key] = 0;
+                firstSeen.Add(key);
+            }
+            counts[key]++;
+        }
+
+        var oddGroups = new List<string>();
+        foreach (var c in firstSeen)
+        {
+            if (counts[c] % 2 != 0)
+                oddGroups.Add($"  - {ColorName(c)}: {counts[c]} celdas (impar)");
+        }
+
+        if (oddGroups.Count > 0)
+        {
+            error = "Cada color debe tener un nro par de celdas (2 celdas = 1 orden de 8 cartas). Colores invalidos:\n"
+                  + string.Join("\n", oddGroups);
+            return false;
+        }
+        return true;
+    }
+
+    static Color QuantizeColor(Color c)
+    {
+        return new Color(
+            Mathf.Round(c.r * 100f) / 100f,
+            Mathf.Round(c.g * 100f) / 100f,
+            Mathf.Round(c.b * 100f) / 100f,
+            1f);
+    }
+
+    string ColorName(Color c)
+    {
+        if (palette != null && palette.entries != null)
+        {
+            foreach (var entry in palette.entries)
+            {
+                if (QuantizeColor(entry.color) == c && !string.IsNullOrEmpty(entry.label))
+                    return entry.label;
+            }
+        }
+        return $"RGB({c.r:0.00},{c.g:0.00},{c.b:0.00})";
     }
 
     private const string Separator = " - ";

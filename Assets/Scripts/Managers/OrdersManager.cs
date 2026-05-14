@@ -5,6 +5,8 @@ using UnityEngine;
 public class OrdersManager : MonoBehaviour
 {
     [SerializeField] private List<Order> orders = new List<Order>();
+
+    public int OrderCount => orders != null ? orders.Count : 0;
     [Tooltip("Tiempo entre que el order termina de hacer scale down y el nuevo aparece.")]
     [SerializeField] private float refillDelay = 0.15f;
 
@@ -31,12 +33,12 @@ public class OrdersManager : MonoBehaviour
         }
     }
 
-    public (Order order, Transform slot) AcquireNextSlot()
+    public (Order order, Transform slot) AcquireNextSlot(Color color)
     {
         foreach (var o in orders)
         {
             if (o == null || o.IsFull) continue;
-            var s = o.AcquireNextSlot();
+            var s = o.AcquireNextSlot(color);
             if (s != null) return (o, s);
         }
         return (null, null);

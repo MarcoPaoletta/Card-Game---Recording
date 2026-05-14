@@ -1033,6 +1033,7 @@ MonoBehaviour:
   editorUI: {fileID: 2045819629}
   spawner: {fileID: 1861954763}
   levelDataAsset: {fileID: 11400000, guid: e8a664ae824d503428b69dfe7a3b5b47, type: 2}
+  palette: {fileID: 11400000, guid: 079abfad7fc553947b986827bca3f6e1, type: 2}
 --- !u!4 &176740451
 Transform:
   m_ObjectHideFlags: 0
