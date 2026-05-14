@@ -18,8 +18,15 @@ public class LevelLayoutManager : MonoBehaviour
     [SerializeField] private float boardGridMargin = 0.4f;
     [Tooltip("Distancia en Z entre el borde del board y el borde mas cercano de las orders.")]
     [SerializeField] private float ordersZGap = 1.0f;
-    [Tooltip("Aire alrededor del encuadre de la camara (board + orders).")]
+    [Tooltip("Aire alrededor del encuadre de la camara.")]
     [SerializeField] private float cameraPadding = 0.5f;
+
+    [Header("Encuadre de camara")]
+    [Tooltip("Puntos que la camara debe encuadrar siempre. Tipicamente FrameTop/FrameBottom (frames deseados) " +
+             "y los 4 anchors del board (BoardTop/Bottom/Left/Right) como minimo garantizado: la camara toma " +
+             "el bbox que los contiene a todos. Si los frames se quedan cortos, los board anchors fuerzan a " +
+             "abrir el encuadre hasta cubrir el tablero.")]
+    [SerializeField] private Transform[] cameraTargets;
 
     /// <summary>
     /// Aplica toda la secuencia de layout para un nivel:
@@ -40,14 +47,6 @@ public class LevelLayoutManager : MonoBehaviour
             ordersManager.Reposition(boardBounds, ordersZGap);
 
         if (cameraFitter != null)
-        {
-            Bounds combined = boardBounds;
-            if (ordersManager != null)
-            {
-                var og = ordersManager.GetGroupRenderBounds();
-                if (og.size != Vector3.zero) combined.Encapsulate(og);
-            }
-            cameraFitter.FitToBounds(combined, cameraPadding);
-        }
+            cameraFitter.FitToTargets(cameraTargets, cameraPadding);
     }
 }

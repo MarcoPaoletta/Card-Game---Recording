@@ -21,6 +21,14 @@ public class BoardResizerManager : MonoBehaviour
     [Tooltip("Unidades de mundo que cubre el mesh del board con scale=1. Plane primitivo de Unity = 10")]
     [SerializeField] private float meshUnitsPerScale = 10f;
 
+    [Header("Anchors de borde (se reposicionan tras el resize)")]
+    [SerializeField] private Transform boardTop;
+    [SerializeField] private Transform boardBottom;
+    [SerializeField] private Transform boardLeft;
+    [SerializeField] private Transform boardRight;
+    [Tooltip("Margen extra (unidades de mundo) hacia afuera del borde del board para cada anchor.")]
+    [SerializeField] private float anchorMargin = 0f;
+
     public float SlotSize => slotSize;
 
     public Bounds GetBoardWorldBounds()
@@ -73,5 +81,20 @@ public class BoardResizerManager : MonoBehaviour
             p.z = spawnerOrigin.position.z;
             boardTransform.position = p;
         }
+
+        UpdateEdgeAnchors();
+    }
+
+    private void UpdateEdgeAnchors()
+    {
+        Bounds b = GetBoardWorldBounds();
+        Vector3 c = b.center;
+        float hx = b.extents.x + anchorMargin;
+        float hz = b.extents.z + anchorMargin;
+
+        if (boardTop != null) boardTop.position = new Vector3(c.x, c.y, c.z + hz);
+        if (boardBottom != null) boardBottom.position = new Vector3(c.x, c.y, c.z - hz);
+        if (boardRight != null) boardRight.position = new Vector3(c.x + hx, c.y, c.z);
+        if (boardLeft != null) boardLeft.position = new Vector3(c.x - hx, c.y, c.z);
     }
 }

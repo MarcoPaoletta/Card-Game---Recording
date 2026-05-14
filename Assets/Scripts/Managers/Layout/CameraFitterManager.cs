@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -25,6 +26,28 @@ public class CameraFitterManager : MonoBehaviour
     /// y ajusta <c>orthographicSize</c> (o distancia en perspectiva) para que
     /// toda la region entre con <paramref name="padding"/> de aire.
     /// </summary>
+    /// <summary>
+    /// Encuadra todos los <paramref name="targets"/> (transforms) calculando el
+    /// bounding box XZ que los contiene a todos, y delegando en FitToBounds.
+    /// </summary>
+    public void FitToTargets(IList<Transform> targets, float padding)
+    {
+        if (targets == null || targets.Count == 0) return;
+
+        bool hasAny = false;
+        Bounds b = new Bounds();
+        for (int i = 0; i < targets.Count; i++)
+        {
+            var t = targets[i];
+            if (t == null) continue;
+            if (!hasAny) { b = new Bounds(t.position, Vector3.zero); hasAny = true; }
+            else b.Encapsulate(t.position);
+        }
+        if (!hasAny) return;
+
+        FitToBounds(b, padding);
+    }
+
     public void FitToBounds(Bounds worldBounds, float padding)
     {
         if (cam == null) return;
