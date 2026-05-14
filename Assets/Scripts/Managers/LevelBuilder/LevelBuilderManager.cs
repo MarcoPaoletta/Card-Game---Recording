@@ -165,6 +165,9 @@ public class LevelBuilderManager : MonoBehaviour
         editorUI.Refresh();
     }
 
+    public void MoveCurrentLevelUp()   => MoveLevelUp(currentLevelIndex);
+    public void MoveCurrentLevelDown() => MoveLevelDown(currentLevelIndex);
+
     public void MoveLevelUp(int index)
     {
         if (index <= 0 || index >= levelCount) return;

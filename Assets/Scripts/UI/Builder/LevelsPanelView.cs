@@ -5,13 +5,16 @@ public class LevelsPanelView : MonoBehaviour
     [SerializeField] private LevelBuilderManager manager;
     [SerializeField] private RectTransform listContainer;
     [SerializeField] private LevelRow rowTemplate;
+    [Tooltip("Si esta activo, el panel queda visible siempre (no se auto-oculta en Awake). Util para layouts donde la lista es parte del HUD principal del builder.")]
+    [SerializeField] private bool keepOpen;
 
     public bool IsOpen => gameObject.activeSelf;
 
     void Awake()
     {
         if (rowTemplate != null) rowTemplate.gameObject.SetActive(false);
-        gameObject.SetActive(false);
+        if (!keepOpen) gameObject.SetActive(false);
+        else Refresh();
     }
 
     public void Open()
@@ -20,7 +23,11 @@ public class LevelsPanelView : MonoBehaviour
         Refresh();
     }
 
-    public void Close() => gameObject.SetActive(false);
+    public void Close()
+    {
+        if (keepOpen) return;
+        gameObject.SetActive(false);
+    }
 
     public void Refresh()
     {
