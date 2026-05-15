@@ -12,7 +12,7 @@ public class CardsSpawnerManager : MonoBehaviour
     [SerializeField] public BoardResizerManager boardResizer;
     [SerializeField] public OrdersManager ordersManager;
     [SerializeField] public LevelFlowManager levelFlow;
-    [SerializeField] public ReserveManager reserveManager;
+    [SerializeField] public ConveyorBelt reserveManager;
 
     public void OverrideLevelData(LevelData runtime) { levelData = runtime; }
 

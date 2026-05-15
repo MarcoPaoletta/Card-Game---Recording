@@ -16,7 +16,7 @@ public class Chunk : MonoBehaviour
 
     private CardsSpawnerManager spawner;
     private OrdersManager ordersManager;
-    private ReserveManager reserveManager;
+    private ConveyorBelt reserveManager;
     private CellDirection direction;
     private List<Vector2Int> cells;
     private Vector3 originalPosition;
@@ -27,7 +27,7 @@ public class Chunk : MonoBehaviour
     public bool IsInteractable => isInteractable;
     public Color Color { get; private set; }
 
-    public void Init(CardsSpawnerManager spawner, OrdersManager orders, ReserveManager reserve, CellDirection dir, List<Vector2Int> cells, Color color)
+    public void Init(CardsSpawnerManager spawner, OrdersManager orders, ConveyorBelt reserve, CellDirection dir, List<Vector2Int> cells, Color color)
     {
         this.spawner = spawner;
         this.ordersManager = orders;

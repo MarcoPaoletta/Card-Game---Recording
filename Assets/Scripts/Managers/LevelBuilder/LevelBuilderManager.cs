@@ -25,7 +25,7 @@ public class LevelBuilderManager : MonoBehaviour
 
     [Header("Refs para reset al cambiar nivel")]
     [SerializeField] private OrdersManager ordersManager;
-    [SerializeField] private ReserveManager reserveManager;
+    [SerializeField] private ConveyorBelt reserveManager;
 
     private LevelData levelData;
     private LevelStore store;
@@ -228,7 +228,14 @@ public class LevelBuilderManager : MonoBehaviour
         //    encuadre de camara use el tamano real, no la escala-0 que pueden
         //    haber quedado del nivel anterior.
         if (ordersManager != null) ordersManager.ResetForLevel();
-        if (reserveManager != null) reserveManager.Clear();
+        if (reserveManager != null)
+        {
+            reserveManager.Clear();
+            BeltPreset preset = null;
+            if (levelData != null && !string.IsNullOrEmpty(levelData.beltPresetName))
+                preset = Resources.Load<BeltPreset>("BeltPresets/" + levelData.beltPresetName);
+            reserveManager.ApplyPresetForLevel(preset);
+        }
 
         // 2) Layout: board scale, orders reposicion, camara fit.
         if (levelLayout != null) levelLayout.Layout(levelData != null ? levelData.cells : null);

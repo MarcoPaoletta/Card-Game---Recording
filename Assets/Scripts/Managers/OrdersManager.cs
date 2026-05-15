@@ -10,7 +10,7 @@ public class OrdersManager : MonoBehaviour
 
     [Header("Refs")]
     [SerializeField] private LevelFlowManager levelFlow;
-    [SerializeField] private ReserveManager reserve;
+    [SerializeField] private ConveyorBelt reserve;
 
     public int OrderCount => orders != null ? orders.Count : 0;
 

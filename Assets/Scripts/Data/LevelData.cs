@@ -17,6 +17,8 @@ public class CellEntry
 public class LevelData : ScriptableObject
 {
     public string levelName = "Nivel 1";
+    [Tooltip("Nombre del BeltPreset (asset en Resources/BeltPresets) a usar para la cinta en este nivel. Vacio = default.")]
+    public string beltPresetName = "";
     public List<CellEntry> cells = new List<CellEntry>();
 
     public bool TryGet(int x, int y, out CellEntry entry)
