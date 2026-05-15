@@ -121,11 +121,49 @@ public class CardsSpawnerManager : MonoBehaviour
                 }
             }
 
+            // Re-pivotear el transform del chunk al centroide de sus cartas.
+            // Sin esto, scales como DOPunchScale (que se aplican al chunk
+            // entero cuando hay un choque) escalan desde la posicion vieja
+            // del chunk (lejana a las cartas), tirando los cards al origen
+            // en vez de pulsarlos en el lugar.
+            RePivotToChildrenCentroid(chunkGO.transform);
+
             AddChunkCollider(chunkGO);
             var firstEntry = lookup[chunkInfo.cells[0]];
             Color chunkColor = new Color(firstEntry.r, firstEntry.g, firstEntry.b, 1f);
             chunk.Init(this, ordersManager, reserveManager, chunkInfo.direction, chunkInfo.cells, chunkColor);
             chunks.Add(chunk);
+        }
+    }
+
+    /// <summary>
+    /// Mueve el transform del chunk a la centroide de sus cartas, preservando
+    /// las posiciones/rotaciones en mundo de las cartas. Asi los scales sobre
+    /// el chunk pivotean desde el centro visual y no desde una esquina arbitraria.
+    /// </summary>
+    static void RePivotToChildrenCentroid(Transform chunkRoot)
+    {
+        int n = chunkRoot.childCount;
+        if (n == 0) return;
+
+        Vector3 centroid = Vector3.zero;
+        for (int i = 0; i < n; i++) centroid += chunkRoot.GetChild(i).position;
+        centroid /= n;
+
+        var wp = new Vector3[n];
+        var wr = new Quaternion[n];
+        for (int i = 0; i < n; i++)
+        {
+            wp[i] = chunkRoot.GetChild(i).position;
+            wr[i] = chunkRoot.GetChild(i).rotation;
+        }
+
+        chunkRoot.position = centroid;
+
+        for (int i = 0; i < n; i++)
+        {
+            chunkRoot.GetChild(i).position = wp[i];
+            chunkRoot.GetChild(i).rotation = wr[i];
         }
     }
 

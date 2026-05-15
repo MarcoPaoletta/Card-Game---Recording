@@ -37,6 +37,8 @@ public class ConveyorBelt : MonoBehaviour
     [Header("Animaciones de salida (hacia orders)")]
     [SerializeField] private float flyDuration = 0.45f;
     [SerializeField] private float jumpPower = 1.0f;
+    [Tooltip("Stagger entre cartas cuando se vacia la cinta hacia un order recien aparecido. Cada carta sale carta-a-carta, no todas en bloque.")]
+    [SerializeField] private float flushStagger = 0.12f;
 
     [Header("Rotacion de la carta en cinta")]
     [Tooltip("Offset Euler aplicado a la rotacion de la carta cuando viaja en la cinta, despues del LookRotation por tangente. " +
@@ -204,20 +206,35 @@ public class ConveyorBelt : MonoBehaviour
         if (order == null) return;
         Color color = order.Color;
 
+        // Reservamos slots del order y disparamos cada salida con stagger.
+        // La entry permanece en `entries` (la carta sigue paseando por la cinta)
+        // hasta que le toca su turno, asi visualmente no se "congela" en su lugar.
+        int sentCount = 0;
         for (int i = entries.Count - 1; i >= 0 && !order.IsFull; i--)
         {
-            var e = entries[i];
-            if (!ColorUtil.ApproximatelyEqual(e.color, color)) continue;
-            if (e.card == null) continue;
+            var entry = entries[i];
+            if (!ColorUtil.ApproximatelyEqual(entry.color, color)) continue;
+            if (entry.card == null) continue;
 
             var orderSlot = order.AcquireNextSlot(color);
             if (orderSlot == null) break;
 
-            var card = e.card;
-            var sourceSlot = e.slot;
-            entries.RemoveAt(i);
+            float delay = sentCount * flushStagger;
+            sentCount++;
 
-            CardTransferTweens.BeltToOrder(card, sourceSlot, orderSlot, order, BuildJumpParams());
+            var capturedEntry = entry;
+            var capturedOrderSlot = orderSlot;
+            var capturedOrder = order;
+            var jp = BuildJumpParams();
+
+            DG.Tweening.DOVirtual.DelayedCall(delay, () =>
+            {
+                if (capturedEntry == null || capturedEntry.card == null) return;
+                var card = capturedEntry.card;
+                var sourceSlot = capturedEntry.slot;
+                entries.Remove(capturedEntry);
+                CardTransferTweens.BeltToOrder(card, sourceSlot, capturedOrderSlot, capturedOrder, jp);
+            });
         }
     }
 

@@ -23,6 +23,8 @@ public class BeltPath : MonoBehaviour
     [Tooltip("Cantidad de sub-segmentos por cada par de control points. Mas alto = curva mas suave pero mas calculo.")]
     [Range(2, 64)]
     [SerializeField] private int splineSubdivisions = 16;
+    [Tooltip("Si esta activo, las cartas recorren los puntos en orden inverso (entran por el portal final y salen por el inicial).")]
+    [SerializeField] private bool reverseDirection = false;
 
     private const string PointsContainerName = "Points";
     private Transform pointsContainer;
@@ -111,12 +113,19 @@ public class BeltPath : MonoBehaviour
 
         int subs = Mathf.Max(1, splineSubdivisions);
 
+        // Construimos un array de control points en el orden de traversal.
+        // Asi el resto del algoritmo (Catmull-Rom + subdivision) es identico
+        // independientemente de la direccion.
+        var pts = new Vector3[n];
+        for (int i = 0; i < n; i++)
+            pts[i] = GetPoint(reverseDirection ? n - 1 - i : i).position;
+
         for (int i = 0; i < n - 1; i++)
         {
-            Vector3 P0 = (i > 0) ? GetPoint(i - 1).position : GetPoint(i).position;
-            Vector3 P1 = GetPoint(i).position;
-            Vector3 P2 = GetPoint(i + 1).position;
-            Vector3 P3 = (i + 2 < n) ? GetPoint(i + 2).position : GetPoint(i + 1).position;
+            Vector3 P0 = (i > 0) ? pts[i - 1] : pts[i];
+            Vector3 P1 = pts[i];
+            Vector3 P2 = pts[i + 1];
+            Vector3 P3 = (i + 2 < n) ? pts[i + 2] : pts[i + 1];
 
             Vector3 prev = P1;
             for (int s = 1; s <= subs; s++)

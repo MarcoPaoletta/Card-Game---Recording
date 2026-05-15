@@ -37,6 +37,10 @@ public static class CardTransferTweens
         card.DOKill();
         var seq = DOTween.Sequence();
         seq.Append(card.DOJump(orderSlot.position, jp.jumpPower, jp.jumpCount, jp.duration).SetEase(jp.ease));
+        // Rotar en paralelo a la rotacion del slot destino: si el chunk venia
+        // horizontal (Left/Right), la carta gira durante el vuelo a la
+        // orientacion del order. Sin esto, hay un snap feo al final.
+        seq.Join(card.DORotateQuaternion(orderSlot.rotation, jp.duration).SetEase(jp.ease));
         seq.OnComplete(() =>
         {
             if (card == null || orderSlot == null) return;
@@ -86,6 +90,7 @@ public static class CardTransferTweens
         card.DOKill();
         var seq = DOTween.Sequence();
         seq.Append(card.DOJump(orderSlot.position, jp.jumpPower, jp.jumpCount, jp.duration).SetEase(jp.ease));
+        seq.Join(card.DORotateQuaternion(orderSlot.rotation, jp.duration).SetEase(jp.ease));
         seq.OnComplete(() =>
         {
             if (card == null || orderSlot == null) return;
