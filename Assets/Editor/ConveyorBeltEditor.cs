@@ -1,14 +1,21 @@
 using UnityEditor;
 using UnityEngine;
 
-[CustomEditor(typeof(ConveyorBelt))]
+/// <summary>
+/// Custom editor que agrupa los controles de los 3 componentes del belt
+/// (<see cref="BeltPath"/>, <see cref="BeltVisuals"/>, <see cref="BeltPresetIO"/>)
+/// en un solo inspector cuando seleccionas el GameObject ConveyorBelt.
+/// </summary>
+[CustomEditor(typeof(BeltPath))]
 public class ConveyorBeltEditor : Editor
 {
     public override void OnInspectorGUI()
     {
         DrawDefaultInspector();
 
-        var belt = (ConveyorBelt)target;
+        var path = (BeltPath)target;
+        var visuals = path.GetComponent<BeltVisuals>();
+        var presetIO = path.GetComponent<BeltPresetIO>();
 
         EditorGUILayout.Space(8);
         EditorGUILayout.LabelField("Authoring", EditorStyles.boldLabel);
@@ -23,45 +30,48 @@ public class ConveyorBeltEditor : Editor
         {
             if (GUILayout.Button("+ Add Point"))
             {
-                Undo.RegisterFullObjectHierarchyUndo(belt.gameObject, "Add belt point");
-                belt.EditorAddPoint();
-                EditorUtility.SetDirty(belt);
+                Undo.RegisterFullObjectHierarchyUndo(path.gameObject, "Add belt point");
+                path.EditorAddPoint();
+                EditorUtility.SetDirty(path);
             }
             if (GUILayout.Button("- Remove Last"))
             {
-                Undo.RegisterFullObjectHierarchyUndo(belt.gameObject, "Remove belt point");
-                belt.EditorRemoveLastPoint();
-                EditorUtility.SetDirty(belt);
+                Undo.RegisterFullObjectHierarchyUndo(path.gameObject, "Remove belt point");
+                path.EditorRemoveLastPoint();
+                EditorUtility.SetDirty(path);
             }
             if (GUILayout.Button("Rebuild Visuals"))
             {
-                Undo.RegisterFullObjectHierarchyUndo(belt.gameObject, "Rebuild belt visuals");
-                belt.RebuildVisuals();
-                EditorUtility.SetDirty(belt);
+                Undo.RegisterFullObjectHierarchyUndo(path.gameObject, "Rebuild belt visuals");
+                if (visuals != null) visuals.Rebuild();
+                EditorUtility.SetDirty(path);
             }
         }
 
-        EditorGUILayout.Space(4);
-        EditorGUILayout.LabelField("Preset (Editor Target)", EditorStyles.boldLabel);
-        using (new EditorGUILayout.HorizontalScope())
+        if (presetIO != null)
         {
-            if (GUILayout.Button("Save As Preset"))
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Preset (Editor Target)", EditorStyles.boldLabel);
+            using (new EditorGUILayout.HorizontalScope())
             {
-                belt.EditorSaveAsPreset();
-            }
-            if (GUILayout.Button("Load Preset"))
-            {
-                Undo.RegisterFullObjectHierarchyUndo(belt.gameObject, "Load belt preset");
-                belt.EditorLoadPreset();
-                EditorUtility.SetDirty(belt);
+                if (GUILayout.Button("Save As Preset"))
+                {
+                    presetIO.EditorSaveAsPreset();
+                }
+                if (GUILayout.Button("Load Preset"))
+                {
+                    Undo.RegisterFullObjectHierarchyUndo(path.gameObject, "Load belt preset");
+                    presetIO.EditorLoadPreset();
+                    EditorUtility.SetDirty(path);
+                }
             }
         }
     }
 
     void OnSceneGUI()
     {
-        var belt = (ConveyorBelt)target;
-        var points = belt.transform.Find("Points");
+        var path = (BeltPath)target;
+        var points = path.PointsContainer;
         if (points == null) return;
 
         int n = points.childCount;
@@ -75,8 +85,6 @@ public class ConveyorBeltEditor : Editor
                 ? new Color(0.3f, 0.85f, 1f, 0.95f)
                 : new Color(1f, 0.85f, 0.2f, 0.95f);
 
-            // Boton clickeable: al apretar selecciona el GameObject del Point
-            // y los handles de transform aparecen automaticamente.
             if (Handles.Button(pt.position, Quaternion.identity, size, size * 1.2f, Handles.SphereHandleCap))
             {
                 Selection.activeGameObject = pt.gameObject;

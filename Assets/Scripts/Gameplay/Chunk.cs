@@ -49,10 +49,9 @@ public class Chunk : MonoBehaviour
         if (blocker != null)
         {
             blocker.FlashAndPunch();
-            var seq = DOTween.Sequence();
-            seq.Append(transform.DOMove(originalPosition + dirVec * bounceNudge, bounceDuration).SetEase(Ease.OutQuad));
-            seq.Append(transform.DOMove(originalPosition, bounceDuration).SetEase(Ease.InQuad));
-            seq.OnComplete(() => isInteractable = true);
+            ChunkFeedbackTweens.Bounce(
+                transform, originalPosition, dirVec, bounceNudge, bounceDuration,
+                () => isInteractable = true);
         }
         else
         {
@@ -70,16 +69,33 @@ public class Chunk : MonoBehaviour
         for (int i = 0; i < transform.childCount; i++) ordered.Add(transform.GetChild(i));
 
         // La flecha solo tiene sentido mientras el chunk esta en el tablero.
-        // Al salir, ocultarla para que no quede dando vueltas en la cinta.
         foreach (var t in ordered)
         {
             var c = t.GetComponent<Card>();
             if (c != null) c.HideArrow();
         }
-        // Leading card first (mayor proyección en dir).
+        // Leading card first (mayor proyeccion en dir).
         ordered.Sort((a, b) => Vector3.Dot(b.position, dirVec).CompareTo(Vector3.Dot(a.position, dirVec)));
 
+        var jp = new CardTransferTweens.JumpParams
+        {
+            jumpPower = jumpPower,
+            jumpCount = jumpCount,
+            duration = moveDuration,
+            ease = Ease.OutQuad,
+        };
+
         int remaining = ordered.Count;
+        System.Action onCardDone = () =>
+        {
+            remaining--;
+            if (remaining <= 0)
+            {
+                if (spawner != null) spawner.UnregisterChunk(this);
+                Destroy(gameObject);
+            }
+        };
+
         for (int i = 0; i < ordered.Count; i++)
         {
             var card = ordered[i];
@@ -94,66 +110,30 @@ public class Chunk : MonoBehaviour
             if (targetSlot == null && reserveManager != null)
                 reserveSlot = reserveManager.AcquireSlot(this.Color);
 
-            Vector3 cardTarget;
-            if (targetSlot != null) cardTarget = targetSlot.position;
-            else if (reserveSlot != null) cardTarget = reserveSlot.position;
-            else cardTarget = card.position + dirVec * distance;
-
-            var seq = DOTween.Sequence();
-            if (delay > 0f) seq.AppendInterval(delay);
-            seq.Append(card.DOJump(cardTarget, jumpPower, jumpCount, moveDuration).SetEase(Ease.OutQuad));
-            seq.OnComplete(() =>
-            {
-                if (targetSlot != null && card != null)
-                {
-                    card.SetParent(targetSlot, worldPositionStays: true);
-                    card.localPosition = Vector3.zero;
-                    card.localRotation = Quaternion.identity;
-                    targetOrder.NotifyDelivered();
-                }
-                else if (reserveSlot != null && card != null && reserveManager != null)
-                {
-                    reserveManager.AttachCardToSlot(reserveSlot, card);
-                }
-                else if (card != null)
-                {
-                    Destroy(card.gameObject);
-                }
-                remaining--;
-                if (remaining <= 0)
-                {
-                    if (spawner != null) spawner.UnregisterChunk(this);
-                    Destroy(gameObject);
-                }
-            });
+            ScheduleCardDeparture(card, delay, targetOrder, targetSlot, reserveSlot, dirVec, distance, jp, onCardDone);
         }
+    }
+
+    void ScheduleCardDeparture(Transform card, float delay, Order targetOrder, Transform targetSlot, Transform reserveSlot, Vector3 dirVec, float distance, CardTransferTweens.JumpParams jp, System.Action onDone)
+    {
+        // El stagger se hace con un DelayedCall en vez de prepender al Sequence
+        // del transfer: asi cada caso (Order/Belt/Void) puede usar su tween
+        // tipado sin tener que mezclar el delay con la logica de cleanup.
+        DOVirtual.DelayedCall(delay, () =>
+        {
+            if (card == null) { onDone?.Invoke(); return; }
+            if (targetSlot != null)
+                CardTransferTweens.BoardToOrder(card, targetSlot, targetOrder, jp, onDone);
+            else if (reserveSlot != null && reserveManager != null)
+                CardTransferTweens.BoardToBelt(card, reserveSlot, reserveManager, jp, onDone);
+            else
+                CardTransferTweens.BoardToVoid(card, card.position + dirVec * distance, jp, onDone);
+        });
     }
 
     public void FlashAndPunch()
     {
-        transform.DOKill(complete: true);
-        transform.DOPunchScale(Vector3.one * punchScale, flashDuration * 2.5f, 6, 0.5f);
-
-        foreach (var mr in GetComponentsInChildren<MeshRenderer>())
-        foreach (var mat in mr.materials)
-            FlashRed(mat);
-    }
-
-    void FlashRed(Material mat)
-    {
-        bool useBase = mat.HasProperty("_BaseColor");
-        Color original = useBase ? mat.GetColor("_BaseColor") : mat.color;
-        var seq = DOTween.Sequence();
-        if (useBase)
-        {
-            seq.Append(mat.DOColor(Color.red, "_BaseColor", flashDuration));
-            seq.Append(mat.DOColor(original, "_BaseColor", flashDuration));
-        }
-        else
-        {
-            seq.Append(mat.DOColor(Color.red, flashDuration));
-            seq.Append(mat.DOColor(original, flashDuration));
-        }
+        ChunkFeedbackTweens.FlashAndPunch(transform, punchScale, flashDuration);
     }
 
     public static Vector3 WorldStep(CellDirection d)
