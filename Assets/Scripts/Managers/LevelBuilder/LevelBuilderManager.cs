@@ -211,6 +211,60 @@ public class LevelBuilderManager : MonoBehaviour
         SaveCurrentLevel();
     }
 
+    // --- Belt preset ---
+
+    public string GetCurrentBeltPresetName()
+    {
+        if (levelData == null) return "";
+        return levelData.beltPresetName ?? "";
+    }
+
+    /// <summary>Display que aparece en la UI: vacio = "Default".</summary>
+    public string GetCurrentBeltPresetDisplayName()
+    {
+        var n = GetCurrentBeltPresetName();
+        return string.IsNullOrEmpty(n) ? "Default" : n;
+    }
+
+    /// <summary>Devuelve los nombres de todos los BeltPreset en Resources/BeltPresets, mas "" como primer item (=default).</summary>
+    public List<string> GetAvailableBeltPresetNames()
+    {
+        var names = new List<string> { "" };
+        var all = Resources.LoadAll<BeltPreset>("BeltPresets");
+        foreach (var p in all)
+        {
+            if (p == null) continue;
+            // El nombre del asset es la clave para Resources.Load.
+            names.Add(p.name);
+        }
+        return names;
+    }
+
+    public void SetCurrentBeltPresetName(string name)
+    {
+        if (levelData == null) return;
+        levelData.beltPresetName = name ?? "";
+        SaveCurrentLevel();
+        // Aplicar de inmediato al belt en escena.
+        if (reserveManager != null)
+        {
+            BeltPreset preset = null;
+            if (!string.IsNullOrEmpty(levelData.beltPresetName))
+                preset = Resources.Load<BeltPreset>("BeltPresets/" + levelData.beltPresetName);
+            reserveManager.ApplyPresetForLevel(preset);
+        }
+    }
+
+    public void CycleBeltPreset(int dir)
+    {
+        var names = GetAvailableBeltPresetNames();
+        if (names.Count == 0) return;
+        int cur = names.IndexOf(GetCurrentBeltPresetName());
+        if (cur < 0) cur = 0;
+        int next = ((cur + dir) % names.Count + names.Count) % names.Count;
+        SetCurrentBeltPresetName(names[next]);
+    }
+
     // --- Internos ---
 
     void CreateEmptyLevelFile(int index)
@@ -231,6 +285,10 @@ public class LevelBuilderManager : MonoBehaviour
         if (reserveManager != null)
         {
             reserveManager.Clear();
+            // Siempre aplicar el preset que le toca al nivel. Si el nivel no
+            // especifica uno, ApplyPresetForLevel(null) cae al defaultPreset
+            // del componente. De cualquier modo, regenera puntos y visuales
+            // desde cero, dejando atras la cinta del nivel anterior.
             BeltPreset preset = null;
             if (levelData != null && !string.IsNullOrEmpty(levelData.beltPresetName))
                 preset = Resources.Load<BeltPreset>("BeltPresets/" + levelData.beltPresetName);

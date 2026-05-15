@@ -47,6 +47,18 @@ public class CardsSpawnerManager : MonoBehaviour
         if (levelData == null || cardPrefab == null || levelData.cells == null || levelData.cells.Count == 0)
             return;
 
+        // Alinear el origen del spawner al centro del board en XZ para que las
+        // cartas siempre caigan sobre el board, sin importar donde quedo el GO
+        // del spawner en escena.
+        if (boardResizer != null)
+        {
+            var c = boardResizer.GetBoardWorldBounds().center;
+            var p = transform.position;
+            p.x = c.x;
+            p.z = c.z;
+            transform.position = p;
+        }
+
         int minX = int.MaxValue, maxX = int.MinValue;
         int minY = int.MaxValue, maxY = int.MinValue;
         foreach (var cell in levelData.cells)

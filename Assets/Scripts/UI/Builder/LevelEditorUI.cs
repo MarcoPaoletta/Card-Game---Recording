@@ -10,6 +10,7 @@ public class LevelEditorUI : MonoBehaviour
     [SerializeField] private BuilderNameDisplay nameDisplay;
     [SerializeField] private BuilderNoteInput noteInput;
     [SerializeField] private LevelsPanelView levelsPanel;
+    [SerializeField] private BuilderBeltPresetSelector beltPresetSelector;
 
     public void OverrideLevelData(LevelData runtime)
     {
@@ -25,5 +26,6 @@ public class LevelEditorUI : MonoBehaviour
         if (noteInput  != null) noteInput.Refresh();
         if (gridView   != null) gridView.Refresh();
         if (levelsPanel != null && levelsPanel.IsOpen) levelsPanel.Refresh();
+        if (beltPresetSelector != null) beltPresetSelector.Refresh();
     }
 }

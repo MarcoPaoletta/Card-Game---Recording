@@ -487,21 +487,11 @@ public class ConveyorBelt : MonoBehaviour
         {
             var pt = pointsContainer.GetChild(i);
             pt.name = $"Point_{i}";
-            for (int j = pt.childCount - 1; j >= 0; j--)
-            {
-                var c = pt.GetChild(j);
-                if (Application.isPlaying) Destroy(c.gameObject);
-                else DestroyImmediate(c.gameObject);
-            }
+            ClearChildrenSafely(pt);
         }
 
         // Limpiar el container de Visuals.
-        for (int i = visualsContainer.childCount - 1; i >= 0; i--)
-        {
-            var c = visualsContainer.GetChild(i);
-            if (Application.isPlaying) Destroy(c.gameObject);
-            else DestroyImmediate(c.gameObject);
-        }
+        ClearChildrenSafely(visualsContainer);
 
         if (pointsContainer.childCount < 2) return;
 
@@ -538,6 +528,19 @@ public class ConveyorBelt : MonoBehaviour
     {
         if (prefab == null) return;
         SamplePath(distance, out Vector3 pos, out Vector3 tangent);
+        // Ventana de suavizado proporcional al spacing: cada part toma como
+        // forward el promedio del tangente en una ventana del mismo tamano
+        // que el step entre partes. Con spacing chico la ventana es chica
+        // y casi no afecta (no ensancha la curva); con spacing grande
+        // suaviza la transicion linea-arco.
+        float window = partSpacing * 0.5f;
+        if (window > 0.001f)
+        {
+            SamplePath(Mathf.Max(0f, distance - window), out _, out Vector3 tBack);
+            SamplePath(distance + window, out _, out Vector3 tFwd);
+            Vector3 avg = tBack + tFwd;
+            if (avg.sqrMagnitude > 0.0001f) tangent = avg;
+        }
         SpawnVisualAt(prefab, pos, tangent, name);
     }
 
@@ -613,18 +616,30 @@ public class ConveyorBelt : MonoBehaviour
     void ApplyPointsFrom(List<Vector3> localPoints)
     {
         EnsureContainers();
-        for (int i = pointsContainer.childCount - 1; i >= 0; i--)
-        {
-            var c = pointsContainer.GetChild(i);
-            if (Application.isPlaying) Destroy(c.gameObject);
-            else DestroyImmediate(c.gameObject);
-        }
+        ClearChildrenSafely(pointsContainer);
         if (localPoints == null) return;
         for (int i = 0; i < localPoints.Count; i++)
         {
             var go = new GameObject($"Point_{i}");
             go.transform.SetParent(pointsContainer, false);
             go.transform.localPosition = localPoints[i];
+        }
+    }
+
+    // Detach + destroy. En play mode Destroy() es diferido al final del frame,
+    // asi que sin detach los children siguen contando en childCount y rompen
+    // los rebuilds que corren en el mismo frame.
+    static void ClearChildrenSafely(Transform parent)
+    {
+        if (parent == null) return;
+        var snapshot = new List<Transform>(parent.childCount);
+        for (int i = 0; i < parent.childCount; i++) snapshot.Add(parent.GetChild(i));
+        foreach (var c in snapshot)
+        {
+            if (c == null) continue;
+            c.SetParent(null, worldPositionStays: false);
+            if (Application.isPlaying) Destroy(c.gameObject);
+            else DestroyImmediate(c.gameObject);
         }
     }
 }

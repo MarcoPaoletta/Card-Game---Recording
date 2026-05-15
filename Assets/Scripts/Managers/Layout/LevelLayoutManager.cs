@@ -39,13 +39,6 @@ public class LevelLayoutManager : MonoBehaviour
         if (boardResizer != null)
             boardResizer.ResizeToFit(cells, boardGridMargin);
 
-        Bounds boardBounds = boardResizer != null
-            ? boardResizer.GetBoardWorldBounds()
-            : new Bounds();
-
-        if (ordersManager != null)
-            ordersManager.Reposition(boardBounds, ordersZGap);
-
         if (cameraFitter != null)
             cameraFitter.FitToTargets(cameraTargets, cameraPadding);
     }

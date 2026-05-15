@@ -11,7 +11,6 @@ public class BoardResizerManager : MonoBehaviour
 {
     [Header("Refs")]
     [SerializeField] private Transform boardTransform;
-    [SerializeField] private Transform spawnerOrigin;
 
     [Header("Geometria del board")]
     [Tooltip("Distancia entre centros de celdas vecinas en X (mismo valor que CardsSpawnerManager.spacingX)")]
@@ -73,14 +72,6 @@ public class BoardResizerManager : MonoBehaviour
             scale.z = Mathf.Max(minSize, (gridH + gridMargin * 2f) / unit);
         }
         boardTransform.localScale = scale;
-
-        if (spawnerOrigin != null)
-        {
-            Vector3 p = boardTransform.position;
-            p.x = spawnerOrigin.position.x;
-            p.z = spawnerOrigin.position.z;
-            boardTransform.position = p;
-        }
 
         UpdateEdgeAnchors();
     }
