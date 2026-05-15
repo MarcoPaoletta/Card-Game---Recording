@@ -508,9 +508,12 @@ public class ConveyorBelt : MonoBehaviour
         float length = GetPathLength();
         if (length <= 0f) return;
 
-        // 1) Portales en los extremos del path.
+        // 1) Portales en los extremos del path. Los dos miran "hacia adentro"
+        //    del camino. El tangente en distance=0 ya apunta hacia adentro;
+        //    en distance=length apunta hacia afuera, asi que se invierte.
         SpawnVisualAtDistance(portalPrefab, 0f, "Portal_Start");
-        SpawnVisualAtDistance(portalPrefab, length, "Portal_End");
+        SamplePath(length, out Vector3 endPos, out Vector3 endTan);
+        SpawnVisualAt(portalPrefab, endPos, -endTan, "Portal_End");
 
         if (partPrefab == null || partSpacing <= 0.01f) return;
 
