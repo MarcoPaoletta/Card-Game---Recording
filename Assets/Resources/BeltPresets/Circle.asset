@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BeltPreset
   presetName: Circle
   localPoints:
-  - {x: -2.98, y: 0, z: -0.45}
-  - {x: -3.13, y: 0, z: 2.27}
-  - {x: 2.66, y: 0, z: 2.27}
-  - {x: 2.68, y: 0, z: -0.45}
+  - {x: -3.18, y: 0, z: -0.52}
+  - {x: -2.087, y: 0, z: 1.8100002}
+  - {x: 1.889, y: 0, z: 1.689}
+  - {x: 3.07, y: 0, z: -0.47999978}

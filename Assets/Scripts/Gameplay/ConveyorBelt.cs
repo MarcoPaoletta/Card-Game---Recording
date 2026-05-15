@@ -34,8 +34,12 @@ public class ConveyorBelt : MonoBehaviour
     [SerializeField] private float partSpacing = 0.5f;
     [Tooltip("Cuanto del path inicial/final queda libre cerca de los portales (no se ponen parts ahi).")]
     [SerializeField] private float portalEdgePadding = 0.4f;
-    [Tooltip("Radio del fillet (redondeo circular) en cada esquina entre puntos interiores. 0 = esquinas duras.")]
-    [SerializeField] private float cornerRadius = 0.6f;
+    [Tooltip("Tension de la spline (Catmull-Rom). 0 = curvas suaves casi rectas; 0.5 = clasico; cerca de 1 = se hace loopy.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float splineTension = 0.5f;
+    [Tooltip("Cantidad de sub-segmentos por cada par de control points. Mas alto = curva mas suave pero mas calculo.")]
+    [Range(2, 64)]
+    [SerializeField] private int splineSubdivisions = 16;
 
     [Header("Presets")]
     [Tooltip("Preset usado si el nivel no especifica uno (campo beltPresetName vacio).")]
@@ -302,77 +306,57 @@ public class ConveyorBelt : MonoBehaviour
 
     struct PathSegment
     {
-        public bool isArc;
         public Vector3 a, b;
-        public Vector3 center;
-        public Vector3 startVec, endVec;
         public float length;
     }
 
+    /// <summary>
+    /// Construye el path como una polilinea fina: para cada par de control
+    /// points adyacentes, subdividimos un Catmull-Rom (con tangentes a partir
+    /// de los vecinos) en N micro-segmentos. La spline pasa exactamente por
+    /// cada control point y suaviza las curvas. En los extremos se duplica
+    /// el control point como ghost para no perder forma.
+    /// </summary>
     List<PathSegment> BuildSegments()
     {
         var segs = new List<PathSegment>();
         int n = GetPointCount();
         if (n < 2) return segs;
 
-        Vector3 lineStart = GetPoint(0).position;
+        int subs = Mathf.Max(1, splineSubdivisions);
 
-        for (int i = 1; i < n - 1; i++)
+        for (int i = 0; i < n - 1; i++)
         {
-            Vector3 prev = GetPoint(i - 1).position;
-            Vector3 p = GetPoint(i).position;
-            Vector3 next = GetPoint(i + 1).position;
+            Vector3 P0 = (i > 0) ? GetPoint(i - 1).position : GetPoint(i).position;
+            Vector3 P1 = GetPoint(i).position;
+            Vector3 P2 = GetPoint(i + 1).position;
+            Vector3 P3 = (i + 2 < n) ? GetPoint(i + 2).position : GetPoint(i + 1).position;
 
-            Vector3 vIn = (p - prev);
-            Vector3 vOut = (next - p);
-            float distPrev = vIn.magnitude;
-            float distNext = vOut.magnitude;
-            if (distPrev < 0.0001f || distNext < 0.0001f) continue;
-            vIn /= distPrev;
-            vOut /= distNext;
-
-            float dotVal = Mathf.Clamp(Vector3.Dot(-vIn, vOut), -1f, 1f);
-            float theta = Mathf.Acos(dotVal);   // angulo interior
-
-            // Recto o radio = 0 -> esquina dura, no insertamos arco.
-            if (Mathf.PI - theta < 0.001f || cornerRadius <= 0.001f) continue;
-
-            float tangentLen = cornerRadius / Mathf.Tan(theta * 0.5f);
-            float maxTangent = Mathf.Min(distPrev, distNext) * 0.5f;
-            tangentLen = Mathf.Min(tangentLen, maxTangent);
-            float effR = tangentLen * Mathf.Tan(theta * 0.5f);
-            if (effR <= 0.0001f) continue;
-
-            Vector3 arcStart = p - vIn * tangentLen;
-            Vector3 arcEnd = p + vOut * tangentLen;
-            Vector3 bisector = (-vIn + vOut).normalized;
-            Vector3 center = p + bisector * (effR / Mathf.Sin(theta * 0.5f));
-
-            float lineLen = Vector3.Distance(lineStart, arcStart);
-            if (lineLen > 0.0001f)
-                segs.Add(new PathSegment { isArc = false, a = lineStart, b = arcStart, length = lineLen });
-
-            float arcAngle = Mathf.PI - theta;
-            segs.Add(new PathSegment
+            Vector3 prev = P1;
+            for (int s = 1; s <= subs; s++)
             {
-                isArc = true,
-                a = arcStart,
-                b = arcEnd,
-                center = center,
-                startVec = arcStart - center,
-                endVec = arcEnd - center,
-                length = effR * arcAngle,
-            });
-
-            lineStart = arcEnd;
+                float t = s / (float)subs;
+                Vector3 cur = CatmullRom(P0, P1, P2, P3, t, splineTension);
+                float len = Vector3.Distance(prev, cur);
+                if (len > 0.0001f)
+                    segs.Add(new PathSegment { a = prev, b = cur, length = len });
+                prev = cur;
+            }
         }
 
-        Vector3 last = GetPoint(n - 1).position;
-        float tailLen = Vector3.Distance(lineStart, last);
-        if (tailLen > 0.0001f)
-            segs.Add(new PathSegment { isArc = false, a = lineStart, b = last, length = tailLen });
-
         return segs;
+    }
+
+    static Vector3 CatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t, float tension)
+    {
+        Vector3 m1 = tension * (p2 - p0);
+        Vector3 m2 = tension * (p3 - p1);
+        float t2 = t * t;
+        float t3 = t2 * t;
+        return (2f * t3 - 3f * t2 + 1f) * p1
+             + (t3 - 2f * t2 + t) * m1
+             + (-2f * t3 + 3f * t2) * p2
+             + (t3 - t2) * m2;
     }
 
     public float GetPathLength()
@@ -398,21 +382,8 @@ public class ConveyorBelt : MonoBehaviour
             if (remaining <= seg.length || last)
             {
                 float t = seg.length > 0.0001f ? Mathf.Clamp01(remaining / seg.length) : 0f;
-                if (!seg.isArc)
-                {
-                    position = Vector3.Lerp(seg.a, seg.b, t);
-                    tangent = (seg.b - seg.a).normalized;
-                }
-                else
-                {
-                    Vector3 vec = Vector3.Slerp(seg.startVec, seg.endVec, t);
-                    position = seg.center + vec;
-                    Vector3 radial = vec.normalized;
-                    Vector3 cand = Vector3.Cross(Vector3.up, radial);
-                    Vector3 forwardHint = (seg.b - seg.a).normalized;
-                    if (Vector3.Dot(cand, forwardHint) < 0) cand = -cand;
-                    tangent = cand;
-                }
+                position = Vector3.Lerp(seg.a, seg.b, t);
+                tangent = (seg.b - seg.a).normalized;
                 return;
             }
             remaining -= seg.length;
