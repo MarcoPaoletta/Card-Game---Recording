@@ -183,7 +183,13 @@ public class CardsSpawnerManager : MonoBehaviour
         {
             var checkPos = leading + step * dirGrid;
             var blocker = FindChunkContaining(checkPos, chunk);
-            if (blocker != null) return (blocker, 0f);
+            if (blocker != null)
+            {
+                // Distancia que el chunk puede avanzar antes de chocar con el blocker:
+                // (step - 1) celdas vacias entre el leading actual y la trailing card del blocker.
+                float bumpDistance = Mathf.Max(0f, (step - 1) * SlotX);
+                return (blocker, bumpDistance);
+            }
         }
 
         return (null, Mathf.Max(0f, distanceToEdge - boardEdgeMargin));

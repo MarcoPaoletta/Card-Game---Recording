@@ -4,15 +4,33 @@ using UnityEngine;
 
 public class Chunk : MonoBehaviour
 {
-    [Header("Tuning")]
-    [SerializeField] private float moveDuration = 0.5f;
-    [SerializeField] private float jumpPower = 1.5f;
+    [Header("Movimiento (sin blocker)")]
+    [Tooltip("Duracion del deslizamiento de cada carta hacia el borde del board (fase 1).")]
+    [SerializeField] private float exitDuration = 0.25f;
+    [Tooltip("Stagger entre cartas (cada carta arranca su slide con este offset; el jump al target arranca apenas termina su propio slide).")]
+    [SerializeField] private float exitStagger = 0.05f;
+    [Tooltip("Duracion del jump de cada carta al target final.")]
+    [SerializeField] private float jumpDuration = 0.5f;
+    [SerializeField] private float jumpPower = 6.0f;
     [SerializeField] private int jumpCount = 1;
-    [SerializeField] private float cardStaggerDelay = 0.06f;
-    [SerializeField] private float bounceDuration = 0.12f;
-    [SerializeField] private float bounceNudge = 0.15f;
-    [SerializeField] private float flashDuration = 0.15f;
-    [SerializeField] private float punchScale = 0.2f;
+
+    [Header("Choque con blocker")]
+    [Tooltip("Duracion del empuje del chunk clickeado hacia el blocker.")]
+    [SerializeField] private float pushDuration = 0.1f;
+    [Tooltip("Duracion del retorno a la posicion original despues del choque.")]
+    [SerializeField] private float returnDuration = 0.18f;
+    [Tooltip("Duracion del flash rojo del blocker (mitad ida, mitad vuelta).")]
+    [SerializeField] private float flashDuration = 0.12f;
+    [Tooltip("Magnitud del punch scale (tanto el del blocker como el de las cartas en cascada).")]
+    [SerializeField] private float punchScale = 0.22f;
+    [Tooltip("Duracion del punch scale del blocker.")]
+    [SerializeField] private float blockerPunchDuration = 0.22f;
+    [Tooltip("Duracion del punch scale de cada carta en la cascada.")]
+    [SerializeField] private float cascadePunchDuration = 0.14f;
+    [Tooltip("Stagger entre punches en la cascada de cartas.")]
+    [SerializeField] private float cascadeStagger = 0.025f;
+    [Tooltip("Tiempo minimo de espera con el chunk pegado al blocker (independiente de la cascada).")]
+    [SerializeField] private float minCollisionHold = 0.05f;
 
     private CardsSpawnerManager spawner;
     private OrdersManager ordersManager;
@@ -21,6 +39,8 @@ public class Chunk : MonoBehaviour
     private List<Vector2Int> cells;
     private Vector3 originalPosition;
     private bool isInteractable = true;
+
+    private readonly ChunkFeedbackTweens.MaterialColorCache flashCache = new ChunkFeedbackTweens.MaterialColorCache();
 
     public CellDirection Direction => direction;
     public IReadOnlyList<Vector2Int> Cells => cells;
@@ -46,44 +66,61 @@ public class Chunk : MonoBehaviour
         var (blocker, distance) = spawner.CalculateChunkMove(this);
         Vector3 dirVec = WorldStep(direction);
 
-        if (blocker != null)
-        {
-            blocker.FlashAndPunch();
-            ChunkFeedbackTweens.Bounce(
-                transform, originalPosition, dirVec, bounceNudge, bounceDuration,
-                () => isInteractable = true);
-        }
-        else
-        {
-            FlyOutStaggered(dirVec, distance);
-        }
+        if (blocker != null) BumpInto(blocker, dirVec, distance);
+        else FlyOutStaggered(dirVec, distance);
     }
 
-    private void FlyOutStaggered(Vector3 dirVec, float distance)
+    // --- Choque con blocker ---
+
+    void BumpInto(Chunk blocker, Vector3 dirVec, float bumpDistance)
     {
-        // Desactivar el collider para que el chunk no se pueda re-clickear durante la salida.
+        // Cartas ordenadas leading-first: la primera es la que "toca" al blocker
+        // y desde ella se propaga la cascada de punch hacia atras.
+        var ordered = SortCardsLeadingFirst(dirVec);
+        float cascadeTime = ChunkFeedbackTweens.CascadeTotalTime(ordered.Count, cascadePunchDuration, cascadeStagger);
+        float hold = Mathf.Max(minCollisionHold, cascadeTime);
+
+        ChunkFeedbackTweens.BumpCollideAndReturn(
+            transform, originalPosition, dirVec, bumpDistance,
+            pushDuration, hold, returnDuration,
+            onCollide: () =>
+            {
+                ChunkFeedbackTweens.BlockerImpact(blocker.transform, blocker.flashCache, flashDuration, punchScale, blockerPunchDuration);
+                ChunkFeedbackTweens.CascadePunch(ordered, punchScale, cascadePunchDuration, cascadeStagger);
+            },
+            onComplete: () => isInteractable = true);
+    }
+
+    // --- Salida del board (2 fases) ---
+
+    void FlyOutStaggered(Vector3 dirVec, float exitDistance)
+    {
         var box = GetComponent<Collider>();
         if (box != null) box.enabled = false;
 
-        var ordered = new List<Transform>(transform.childCount);
-        for (int i = 0; i < transform.childCount; i++) ordered.Add(transform.GetChild(i));
-
-        // La flecha solo tiene sentido mientras el chunk esta en el tablero.
+        var ordered = SortCardsLeadingFirst(dirVec);
         foreach (var t in ordered)
         {
             var c = t.GetComponent<Card>();
             if (c != null) c.HideArrow();
         }
-        // Leading card first (mayor proyeccion en dir).
-        ordered.Sort((a, b) => Vector3.Dot(b.position, dirVec).CompareTo(Vector3.Dot(a.position, dirVec)));
 
-        var jp = new CardTransferTweens.JumpParams
+        // Reservar targets upfront para no diferir el estado de OrdersManager/Belt.
+        var assignments = new List<BoardExitTweens.CardAssignment>(ordered.Count);
+        foreach (var card in ordered)
         {
-            jumpPower = jumpPower,
-            jumpCount = jumpCount,
-            duration = moveDuration,
-            ease = Ease.OutQuad,
-        };
+            var assign = ordersManager != null ? ordersManager.AcquireNextSlot(this.Color) : (null, (Transform)null);
+            Transform reserveSlot = null;
+            if (assign.slot == null && reserveManager != null)
+                reserveSlot = reserveManager.AcquireSlot(this.Color);
+            assignments.Add(new BoardExitTweens.CardAssignment
+            {
+                card = card,
+                order = assign.order,
+                orderSlot = assign.slot,
+                beltSlot = reserveSlot,
+            });
+        }
 
         int remaining = ordered.Count;
         System.Action onCardDone = () =>
@@ -96,44 +133,29 @@ public class Chunk : MonoBehaviour
             }
         };
 
-        for (int i = 0; i < ordered.Count; i++)
+        var tunings = new BoardExitTweens.Tunings
         {
-            var card = ordered[i];
-            float delay = i * cardStaggerDelay;
+            exitDuration = exitDuration,
+            exitStagger = exitStagger,
+            exitEase = Ease.OutQuad,
+            jump = new CardTransferTweens.JumpParams
+            {
+                jumpPower = jumpPower,
+                jumpCount = jumpCount,
+                duration = jumpDuration,
+                ease = Ease.OutQuad,
+            },
+        };
 
-            var assign = ordersManager != null ? ordersManager.AcquireNextSlot(this.Color) : (null, (Transform)null);
-            Order targetOrder = assign.order;
-            Transform targetSlot = assign.slot;
-
-            // Si no hay order disponible (lleno o color distinto), mandar al reserve.
-            Transform reserveSlot = null;
-            if (targetSlot == null && reserveManager != null)
-                reserveSlot = reserveManager.AcquireSlot(this.Color);
-
-            ScheduleCardDeparture(card, delay, targetOrder, targetSlot, reserveSlot, dirVec, distance, jp, onCardDone);
-        }
+        BoardExitTweens.Play(assignments, dirVec, exitDistance, reserveManager, tunings, onCardDone);
     }
 
-    void ScheduleCardDeparture(Transform card, float delay, Order targetOrder, Transform targetSlot, Transform reserveSlot, Vector3 dirVec, float distance, CardTransferTweens.JumpParams jp, System.Action onDone)
+    List<Transform> SortCardsLeadingFirst(Vector3 dirVec)
     {
-        // El stagger se hace con un DelayedCall en vez de prepender al Sequence
-        // del transfer: asi cada caso (Order/Belt/Void) puede usar su tween
-        // tipado sin tener que mezclar el delay con la logica de cleanup.
-        DOVirtual.DelayedCall(delay, () =>
-        {
-            if (card == null) { onDone?.Invoke(); return; }
-            if (targetSlot != null)
-                CardTransferTweens.BoardToOrder(card, targetSlot, targetOrder, jp, onDone);
-            else if (reserveSlot != null && reserveManager != null)
-                CardTransferTweens.BoardToBelt(card, reserveSlot, reserveManager, jp, onDone);
-            else
-                CardTransferTweens.BoardToVoid(card, card.position + dirVec * distance, jp, onDone);
-        });
-    }
-
-    public void FlashAndPunch()
-    {
-        ChunkFeedbackTweens.FlashAndPunch(transform, punchScale, flashDuration);
+        var ordered = new List<Transform>(transform.childCount);
+        for (int i = 0; i < transform.childCount; i++) ordered.Add(transform.GetChild(i));
+        ordered.Sort((a, b) => Vector3.Dot(b.position, dirVec).CompareTo(Vector3.Dot(a.position, dirVec)));
+        return ordered;
     }
 
     public static Vector3 WorldStep(CellDirection d)
