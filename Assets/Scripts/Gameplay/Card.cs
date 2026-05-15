@@ -28,4 +28,10 @@ public class Card : MonoBehaviour
             }
         }
     }
+
+    /// <summary>Oculta la flecha del chunk. Se llama cuando la carta sale del tablero.</summary>
+    public void HideArrow()
+    {
+        if (arrow != null) arrow.SetActive(false);
+    }
 }

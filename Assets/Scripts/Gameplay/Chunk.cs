@@ -68,6 +68,14 @@ public class Chunk : MonoBehaviour
 
         var ordered = new List<Transform>(transform.childCount);
         for (int i = 0; i < transform.childCount; i++) ordered.Add(transform.GetChild(i));
+
+        // La flecha solo tiene sentido mientras el chunk esta en el tablero.
+        // Al salir, ocultarla para que no quede dando vueltas en la cinta.
+        foreach (var t in ordered)
+        {
+            var c = t.GetComponent<Card>();
+            if (c != null) c.HideArrow();
+        }
         // Leading card first (mayor proyección en dir).
         ordered.Sort((a, b) => Vector3.Dot(b.position, dirVec).CompareTo(Vector3.Dot(a.position, dirVec)));
 

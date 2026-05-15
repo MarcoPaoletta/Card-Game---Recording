@@ -22,6 +22,9 @@ public class CardsSpawnerManager : MonoBehaviour
     [Tooltip("Distancia entre cartas apiladas dentro de un chunk (lado corto)")]
     [SerializeField] public float spacingZ = 0.2f;
 
+    /// <summary>Distancia entre cartas en el board (eje corto). Reusada por ConveyorBelt.</summary>
+    public float CardSpacing => spacingZ;
+
     [Header("Movimiento")]
     [Tooltip("Margen (en unidades de mundo) que se respeta del borde del board cuando un chunk sale.")]
     [SerializeField] private float boardEdgeMargin = 0.3f;

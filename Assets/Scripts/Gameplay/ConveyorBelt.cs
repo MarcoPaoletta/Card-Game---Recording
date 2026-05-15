@@ -49,6 +49,8 @@ public class ConveyorBelt : MonoBehaviour
 
     [Header("Refs")]
     [SerializeField] private OrdersManager ordersManager;
+    [Tooltip("Spawner del board. Se usa para leer su card spacing y mantenerlo igual en la cinta.")]
+    [SerializeField] private CardsSpawnerManager cardsSpawner;
 
     [Header("Movimiento")]
     [Tooltip("Velocidad de avance de las cartas a lo largo del path (units/seg).")]
@@ -61,6 +63,11 @@ public class ConveyorBelt : MonoBehaviour
     [Header("Animaciones de salida (hacia orders)")]
     [SerializeField] private float flyDuration = 0.45f;
     [SerializeField] private float jumpPower = 1.0f;
+
+    [Header("Rotacion de la carta en cinta")]
+    [Tooltip("Offset Euler aplicado a la rotacion de la carta cuando viaja en la cinta, despues del LookRotation por tangente. " +
+             "Usar si el modelo del cartas no tiene su 'frente' alineado con +Z.")]
+    [SerializeField] private Vector3 cardOnBeltEulerOffset = new Vector3(0f, -90f, 0f);
 
     private const string PointsContainerName = "Points";
     private const string VisualsContainerName = "Visuals";
@@ -150,9 +157,15 @@ public class ConveyorBelt : MonoBehaviour
 
     void UpdateSlotTransform(Entry e, float length)
     {
-        SamplePath(e.distance, out Vector3 pos, out _);
+        SamplePath(e.distance, out Vector3 pos, out Vector3 tangent);
         pos.y = cardY;
         e.slot.position = pos;
+
+        if (tangent.sqrMagnitude > 0.0001f)
+        {
+            var baseRot = Quaternion.LookRotation(tangent.normalized, Vector3.up);
+            e.slot.rotation = baseRot * Quaternion.Euler(cardOnBeltEulerOffset);
+        }
 
         float zone = Mathf.Max(0.001f, portalScaleZoneLength);
         float t;
@@ -172,10 +185,25 @@ public class ConveyorBelt : MonoBehaviour
     {
         if (!HasArea) return null;
         EnsureContainers();
+
+        // Empezar detras de la ultima carta en cola (la de menor distance),
+        // respetando el spacing del board (CardsSpawnerManager.CardSpacing).
+        // Si la cola pasa el inicio del path, el distance queda negativo y
+        // la carta espera fisicamente en el portal hasta que avance.
+        float spacing = cardsSpawner != null ? cardsSpawner.CardSpacing : 0.2f;
+        float startDistance = 0f;
+        if (entries.Count > 0)
+        {
+            float minDist = entries[0].distance;
+            for (int i = 1; i < entries.Count; i++)
+                if (entries[i].distance < minDist) minDist = entries[i].distance;
+            startDistance = Mathf.Min(0f, minDist - spacing);
+        }
+
         var slotGO = new GameObject("BeltSlot");
         slotGO.transform.SetParent(slotsContainer, worldPositionStays: false);
 
-        SamplePath(0f, out Vector3 pos, out _);
+        SamplePath(Mathf.Max(0f, startDistance), out Vector3 pos, out _);
         pos.y = cardY;
         slotGO.transform.position = pos;
         slotGO.transform.localScale = Vector3.one;
@@ -184,7 +212,7 @@ public class ConveyorBelt : MonoBehaviour
         {
             color = color,
             slot = slotGO.transform,
-            distance = 0f,
+            distance = startDistance,
             hasWrapped = false,
             state = State.InFlightToBelt,
         };
@@ -202,6 +230,9 @@ public class ConveyorBelt : MonoBehaviour
         entry.state = State.Riding;
         card.SetParent(slot, worldPositionStays: true);
         card.localPosition = Vector3.zero;
+        // Reset rotacion local: la carta hereda la orientacion del slot,
+        // que sigue el tangente del path (+ offset configurable).
+        card.localRotation = Quaternion.identity;
 
         TryForwardEntry(entry);
     }
