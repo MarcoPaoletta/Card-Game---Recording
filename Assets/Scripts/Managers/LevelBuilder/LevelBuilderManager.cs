@@ -130,7 +130,7 @@ public class LevelBuilderManager : MonoBehaviour
     {
         if (levelData == null) return;
         levelData.levelName = LevelNaming.BuildName(currentLevelIndex, LevelNaming.ParseNote(levelData.levelName));
-        store.Write(currentLevelIndex, JsonUtility.ToJson(levelData));
+        store.Write(currentLevelIndex, JsonUtility.ToJson(levelData, true));
     }
 
     public void LoadLevel(int index)
@@ -326,7 +326,7 @@ public class LevelBuilderManager : MonoBehaviour
         var tmp = ScriptableObject.CreateInstance<LevelData>();
         tmp.levelName = LevelNaming.BuildName(index, "");
         tmp.cells = new List<CellEntry>();
-        store.Write(index, JsonUtility.ToJson(tmp));
+        store.Write(index, JsonUtility.ToJson(tmp, true));
         Destroy(tmp);
     }
 
