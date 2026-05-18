@@ -31,6 +31,15 @@ public class ConveyorBelt : MonoBehaviour
     [SerializeField] private float beltSpeed = 0.6f;
     [Tooltip("Longitud (en units del path) cerca de cada portal donde la carta hace scale 0<->1.")]
     [SerializeField] private float portalScaleZoneLength = 0.5f;
+    [Tooltip("Distancia adelantada en el path donde aterriza la primera carta del board (frente de cola). Subir este valor evita que el target del jump caiga justo en la boca del portal y haga clipping con el portal o con cartas previas.")]
+    [SerializeField] private float entryPathOffset = 0.4f;
+    [Tooltip("Espaciado entre cartas en la cola de entrada. Si es <= 0 se usa CardsSpawnerManager.CardSpacing (default 0.2). Subir este valor separa mas las cartas que aterrizan en rapida sucesion para que no se solapen.")]
+    [SerializeField] private float entrySpacing = 0f;
+    [Tooltip("Solo editor: dibuja un gizmo en el punto donde aterriza la primera carta y las posiciones que tomarian las siguientes en la cola, para tunear entryPathOffset / entrySpacing sin entrar a play.")]
+    [SerializeField] private bool drawEntryGizmo = true;
+    [Tooltip("Solo editor: cuantas posiciones de cola dibuja el gizmo de entrada.")]
+    [Range(1, 32)]
+    [SerializeField] private int entryGizmoPreviewCount = 8;
     [Tooltip("Altura Y a la que se posicionan las cartas en la cinta.")]
     [SerializeField] private float cardY = 0.5f;
 
@@ -108,7 +117,7 @@ public class ConveyorBelt : MonoBehaviour
 
     void UpdateSlotTransform(Entry e, float length)
     {
-        path.SamplePath(e.distance, out Vector3 pos, out Vector3 tangent);
+        SampleBeltSlot(e.distance, out Vector3 pos, out Vector3 tangent);
         pos.y = cardY;
         e.slot.position = pos;
 
@@ -120,7 +129,9 @@ public class ConveyorBelt : MonoBehaviour
 
         float zone = Mathf.Max(0.001f, portalScaleZoneLength);
         float t;
-        if (e.distance > length - zone)
+        if (e.distance < 0f)
+            t = 0f;
+        else if (e.distance > length - zone)
             t = Mathf.Clamp01((length - e.distance) / zone);
         else if (e.hasWrapped && e.distance < zone)
             t = Mathf.Clamp01(e.distance / zone);
@@ -130,6 +141,32 @@ public class ConveyorBelt : MonoBehaviour
         e.slot.localScale = new Vector3(t, t, t);
     }
 
+    /// <summary>
+    /// Sample del path con extrapolacion lineal hacia atras del portal de entrada
+    /// (distance &lt; 0). Sin esto, distancias negativas todas caen sobre la boca
+    /// del portal (SamplePath internamente las clamp ea 0) y las cartas en cola
+    /// se solapan visualmente en un solo punto. La extrapolacion usa el tangente
+    /// del primer segmento para que la cola se extienda fuera del path en linea
+    /// recta hacia atras.
+    /// </summary>
+    void SampleBeltSlot(float distance, out Vector3 pos, out Vector3 tangent)
+    {
+        if (distance >= 0f)
+        {
+            path.SamplePath(distance, out pos, out tangent);
+            return;
+        }
+        path.SamplePath(0f, out Vector3 pos0, out tangent);
+        Vector3 dir = tangent.sqrMagnitude > 0.0001f ? tangent.normalized : Vector3.right;
+        pos = pos0 + dir * distance; // distance < 0 => mueve hacia atras
+    }
+
+    float EffectiveEntrySpacing()
+    {
+        if (entrySpacing > 0f) return entrySpacing;
+        return cardsSpawner != null ? cardsSpawner.CardSpacing : 0.2f;
+    }
+
     // --- API publica ---
 
     public Transform AcquireSlot(Color color)
@@ -137,24 +174,29 @@ public class ConveyorBelt : MonoBehaviour
         EnsureRefs();
         if (!HasArea) return null;
 
-        // Empezar detras de la ultima carta en cola (la de menor distance),
-        // respetando el spacing del board (CardsSpawnerManager.CardSpacing).
-        // Si la cola pasa el inicio del path, el distance queda negativo y
-        // la carta espera fisicamente en el portal hasta que avance.
-        float spacing = cardsSpawner != null ? cardsSpawner.CardSpacing : 0.2f;
-        float startDistance = 0f;
+        // La cola se extiende HACIA ADELANTE en el path: la primera carta
+        // aterriza en entryPathOffset y cada nueva carta se ubica delante de la
+        // mas adelantada de la cola por un spacing. Las cartas avanzan todas
+        // juntas via belt; el orden de consumo (TryForwardEntry/TryFlushTo) se
+        // sigue manteniendo por orden de llegada porque iteran la lista
+        // 'entries', no por distancia.
+        float spacing = EffectiveEntrySpacing();
+        float length = path.GetPathLength();
+        float startDistance = entryPathOffset;
         if (entries.Count > 0)
         {
-            float minDist = entries[0].distance;
+            float maxDist = entries[0].distance;
             for (int i = 1; i < entries.Count; i++)
-                if (entries[i].distance < minDist) minDist = entries[i].distance;
-            startDistance = Mathf.Min(0f, minDist - spacing);
+                if (entries[i].distance > maxDist) maxDist = entries[i].distance;
+            startDistance = Mathf.Max(entryPathOffset, maxDist + spacing);
         }
+        if (length > 0f && startDistance >= length)
+            startDistance = length - spacing * 0.5f;
 
         var slotGO = new GameObject("BeltSlot");
         slotGO.transform.SetParent(slotsContainer, worldPositionStays: false);
 
-        path.SamplePath(Mathf.Max(0f, startDistance), out Vector3 pos, out _);
+        SampleBeltSlot(startDistance, out Vector3 pos, out _);
         pos.y = cardY;
         slotGO.transform.position = pos;
         slotGO.transform.localScale = Vector3.one;
@@ -294,4 +336,58 @@ public class ConveyorBelt : MonoBehaviour
         foreach (var e in entries) if (e.slot == slot) return e;
         return null;
     }
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// Edit-mode preview: pinta el punto donde aterriza la primera carta (frente
+    /// de cola = entryPathOffset) y las posiciones que tomarian las siguientes
+    /// si llegaran a la cinta sin que la primera haya avanzado todavia. Las
+    /// posiciones detras del portal (distance &lt; 0) se extrapolan en linea recta
+    /// segun el tangente del primer segmento.
+    /// </summary>
+    void OnDrawGizmos()
+    {
+        if (!drawEntryGizmo) return;
+        if (path == null) path = GetComponent<BeltPath>();
+        if (path == null || !path.HasArea) return;
+
+        float spacing = EffectiveEntrySpacing();
+        float length = path.GetPathLength();
+        int n = Mathf.Max(1, entryGizmoPreviewCount);
+
+        // Frente de cola: donde aterriza la 1ra carta. Esfera verde grande.
+        SampleBeltSlot(entryPathOffset, out Vector3 frontPos, out _);
+        Vector3 front = new Vector3(frontPos.x, cardY, frontPos.z);
+        Gizmos.color = new Color(0.2f, 1f, 0.4f, 0.95f);
+        Gizmos.DrawSphere(front, 0.18f);
+        Gizmos.color = new Color(0.05f, 0.5f, 0.15f, 1f);
+        Gizmos.DrawWireSphere(front, 0.22f);
+
+        // Posiciones de cola: las siguientes cartas aterrizan ADELANTE en el
+        // path, no detras. Naranja si el calculo cae mas alla del exit portal
+        // (caso raro: la cinta esta saturada).
+        Vector3 prev = front;
+        for (int i = 1; i < n; i++)
+        {
+            float d = entryPathOffset + i * spacing;
+            bool pastExit = length > 0f && d >= length;
+            if (pastExit) d = length - spacing * 0.5f;
+            SampleBeltSlot(d, out Vector3 p, out _);
+            p.y = cardY;
+            float fade = 1f - (i / (float)n) * 0.7f;
+            Gizmos.color = pastExit
+                ? new Color(1f, 0.55f, 0.1f, fade * 0.85f)
+                : new Color(0.4f, 0.9f, 0.5f, fade * 0.85f);
+            Gizmos.DrawSphere(p, 0.12f);
+            Gizmos.color = new Color(Gizmos.color.r, Gizmos.color.g, Gizmos.color.b, 0.4f);
+            Gizmos.DrawLine(prev, p);
+            prev = p;
+        }
+
+        // Etiqueta opcional sobre el frente.
+        UnityEditor.Handles.color = new Color(0.7f, 1f, 0.8f, 1f);
+        UnityEditor.Handles.Label(front + Vector3.up * 0.35f,
+            $"Entry @ {entryPathOffset:0.00}\nspacing {spacing:0.00}");
+    }
+#endif
 }
