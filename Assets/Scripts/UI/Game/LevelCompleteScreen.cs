@@ -46,7 +46,7 @@ public class LevelCompleteScreen : MonoBehaviour
     {
         if (panel != null) panel.SetActive(true);
         if (titleLabel != null && builder != null)
-            titleLabel.text = $"Nivel {builder.CurrentLevelIndex + 1} completado";
+            titleLabel.text = $"Nivel {builder.DisplayLevelNumber} completado";
     }
 
     public void Hide()

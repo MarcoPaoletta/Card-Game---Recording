@@ -13,4 +13,6 @@ public class BeltPreset : ScriptableObject
 {
     public string presetName = "New Belt";
     public List<Vector3> localPoints = new List<Vector3>();
+    [Tooltip("Cantidad maxima de cartas que pueden estar en la cinta a la vez. Cada slot del pool aloja una sola carta. Si <= 0, se calcula automaticamente segun cuanto entra en el path con el spacing actual.")]
+    public int capacity = 0;
 }

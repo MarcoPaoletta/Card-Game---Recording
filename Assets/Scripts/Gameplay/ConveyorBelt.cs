@@ -1,21 +1,18 @@
 using System.Collections.Generic;
+using DG.Tweening;
 using UnityEngine;
 
 /// <summary>
-/// Cinta transportadora: gestiona las cartas que estan "viajando en loop" entre
-/// dos portales mientras esperan que se libere un order del color matcheante.
-///
-/// Esta clase solo se encarga del runtime: lleva el registro de los slots
-/// activos, los avanza por el path, y dispara los tweens de transferencia
-/// cuando aparece un order disponible.
+/// Cinta transportadora con modelo de slot pool: el preset define una
+/// capacidad (cuantas cartas caben a la vez) y al aplicarse construimos un
+/// arreglo fijo de slot Transforms equiespaciados por entrySpacing a lo largo
+/// del path, empezando en entryPathOffset. Cada slot acepta UNA carta a la
+/// vez; cuando una carta sale a un order, su slot queda libre y la proxima
+/// carta entrante lo reutiliza. Asi nunca dos cartas comparten posicion.
 ///
 /// La geometria del path vive en <see cref="BeltPath"/>; los visuales
 /// (portales + partes) en <see cref="BeltVisuals"/>; la I/O de presets en
-/// <see cref="BeltPresetIO"/>. Esta fachada delgada mantiene la API publica
-/// historica (<see cref="AcquireSlot"/>, <see cref="AttachCardToSlot"/>,
-/// <see cref="TryFlushTo"/>, <see cref="Clear"/>, <see cref="ApplyPresetForLevel"/>)
-/// para no romper a los callers (Chunk, OrdersManager, CardsSpawnerManager,
-/// LevelBuilderManager).
+/// <see cref="BeltPresetIO"/>.
 /// </summary>
 [DisallowMultipleComponent]
 [RequireComponent(typeof(BeltPath))]
@@ -26,59 +23,74 @@ public class ConveyorBelt : MonoBehaviour
     [Tooltip("Spawner del board. Se usa para leer su card spacing y mantenerlo igual en la cinta.")]
     [SerializeField] private CardsSpawnerManager cardsSpawner;
 
-    [Header("Movimiento")]
-    [Tooltip("Velocidad de avance de las cartas a lo largo del path (units/seg).")]
-    [SerializeField] private float beltSpeed = 0.6f;
-    [Tooltip("Longitud (en units del path) cerca de cada portal donde la carta hace scale 0<->1.")]
-    [SerializeField] private float portalScaleZoneLength = 0.5f;
-    [Tooltip("Distancia adelantada en el path donde aterriza la primera carta del board (frente de cola). Subir este valor evita que el target del jump caiga justo en la boca del portal y haga clipping con el portal o con cartas previas.")]
+    [Header("Slot pool")]
+    [Tooltip("Distancia desde el portal de entrada (path = 0) donde se ubica el slot 0 cuando phase=0. Cada slot siguiente esta a entrySpacing del anterior.")]
     [SerializeField] private float entryPathOffset = 0.4f;
-    [Tooltip("Espaciado entre cartas en la cola de entrada. Si es <= 0 se usa CardsSpawnerManager.CardSpacing (default 0.2). Subir este valor separa mas las cartas que aterrizan en rapida sucesion para que no se solapen.")]
+    [Tooltip("Espaciado entre slots a lo largo del path. Si es <= 0 se usa CardsSpawnerManager.CardSpacing (default 0.2).")]
     [SerializeField] private float entrySpacing = 0f;
-    [Tooltip("Solo editor: dibuja un gizmo en el punto donde aterriza la primera carta y las posiciones que tomarian las siguientes en la cola, para tunear entryPathOffset / entrySpacing sin entrar a play.")]
-    [SerializeField] private bool drawEntryGizmo = true;
-    [Tooltip("Solo editor: cuantas posiciones de cola dibuja el gizmo de entrada.")]
-    [Range(1, 32)]
-    [SerializeField] private int entryGizmoPreviewCount = 8;
-    [Tooltip("Altura Y a la que se posicionan las cartas en la cinta.")]
+    [Tooltip("Altura Y a la que se posicionan los slots/cartas.")]
     [SerializeField] private float cardY = 0.5f;
+    [Tooltip("Velocidad de rotacion del pool a lo largo del path (units/seg). Todos los slots avanzan juntos manteniendo entrySpacing entre si y vuelven al inicio al pasar el portal de salida. Las cartas viajan pegadas a su slot.")]
+    [SerializeField] private float beltSpeed = 0.6f;
+    [Tooltip("Solo editor: dibuja un gizmo con todos los slots del pool. Usa el preset al que apunta editorTargetPreset (el que estas editando con Save/Load); si no hay, cae a defaultPreset; si no, auto.")]
+    [SerializeField] private bool drawSlotsGizmo = true;
 
     [Header("Animaciones de salida (hacia orders)")]
     [SerializeField] private float flyDuration = 0.45f;
     [SerializeField] private float jumpPower = 1.0f;
-    [Tooltip("Stagger entre cartas cuando se vacia la cinta hacia un order recien aparecido. Cada carta sale carta-a-carta, no todas en bloque.")]
+    [Tooltip("Stagger global de salidas belt->order. Siempre se respeta entre cualquier par de cartas que salen, sin importar la ruta (TryForwardEntry, TryFlushTo, TryFlushToAny).")]
     [SerializeField] private float flushStagger = 0.12f;
 
     [Header("Rotacion de la carta en cinta")]
-    [Tooltip("Offset Euler aplicado a la rotacion de la carta cuando viaja en la cinta, despues del LookRotation por tangente. " +
-             "Usar si el modelo del cartas no tiene su 'frente' alineado con +Z.")]
+    [Tooltip("Offset Euler aplicado a la rotacion del slot, despues del LookRotation por tangente. Usar si el modelo de la carta no tiene su 'frente' alineado con +Z.")]
     [SerializeField] private Vector3 cardOnBeltEulerOffset = new Vector3(0f, -90f, 0f);
 
     private const string SlotsContainerName = "Slots";
     private Transform slotsContainer;
     private BeltPath path;
     private BeltPresetIO presetIO;
+    private BeltPreset lastAppliedPreset;
 
-    enum State { InFlightToBelt, Riding }
+    class SlotInfo
+    {
+        public int index;
+        public Transform transform;
+        public float baseOffset; // posicion del slot en el pool cuando phase = 0
+        public Entry occupant;
+    }
 
     class Entry
     {
         public Color color;
         public Transform card;
-        public Transform slot;
-        public float distance;
-        public bool hasWrapped;
-        public State state;
+        public SlotInfo slotInfo;
+        public bool scheduled;
     }
 
+    private readonly List<SlotInfo> slots = new List<SlotInfo>();
+    // Lista paralela de entries (cartas que ocupan slots) en orden de llegada.
+    // Sirve para que TryFlushTo / TryFlushToAny iteren FIFO y para el throttle
+    // global de forwards (ScheduleForward).
     private readonly List<Entry> entries = new List<Entry>();
+    private float nextForwardTime;
+    // Avance global del pool. Todos los slots tienen distance = (baseOffset + phase) % length.
+    private float phase;
+    // Indice del proximo slot del pool a usar para una carta entrante. Se incrementa
+    // ciclicamente cada AcquireSlot; si esta ocupado, salta al siguiente libre.
+    // Asi el llenado SIEMPRE sigue el orden del pool (carta N entra en el slot que
+    // viene despues del slot de carta N-1), incluso aunque al rotar otros slots
+    // queden mas cerca del portal de entrada. Los huecos solo aparecen cuando
+    // un slot del medio se libera por un forward a un order.
+    private int nextFillIndex;
 
     public bool HasArea => path != null && path.HasArea;
-
-    void OnEnable()
+    public int SlotCount => slots.Count;
+    public int FreeSlotCount
     {
-        EnsureRefs();
+        get { int n = 0; for (int i = 0; i < slots.Count; i++) if (slots[i].occupant == null) n++; return n; }
     }
+
+    void OnEnable() { EnsureRefs(); }
 
     void EnsureRefs()
     {
@@ -96,121 +108,147 @@ public class ConveyorBelt : MonoBehaviour
         ease = DG.Tweening.Ease.OutQuad,
     };
 
-    void Update()
-    {
-        if (!Application.isPlaying) return;
-        if (entries.Count == 0) return;
-        if (path == null) return;
-
-        float length = path.GetPathLength();
-        if (length <= 0f) return;
-
-        for (int i = 0; i < entries.Count; i++)
-        {
-            var e = entries[i];
-            if (e.state != State.Riding || e.slot == null) continue;
-            e.distance += beltSpeed * Time.deltaTime;
-            if (e.distance >= length) { e.distance -= length; e.hasWrapped = true; }
-            UpdateSlotTransform(e, length);
-        }
-    }
-
-    void UpdateSlotTransform(Entry e, float length)
-    {
-        SampleBeltSlot(e.distance, out Vector3 pos, out Vector3 tangent);
-        pos.y = cardY;
-        e.slot.position = pos;
-
-        if (tangent.sqrMagnitude > 0.0001f)
-        {
-            var baseRot = Quaternion.LookRotation(tangent.normalized, Vector3.up);
-            e.slot.rotation = baseRot * Quaternion.Euler(cardOnBeltEulerOffset);
-        }
-
-        float zone = Mathf.Max(0.001f, portalScaleZoneLength);
-        float t;
-        if (e.distance < 0f)
-            t = 0f;
-        else if (e.distance > length - zone)
-            t = Mathf.Clamp01((length - e.distance) / zone);
-        else if (e.hasWrapped && e.distance < zone)
-            t = Mathf.Clamp01(e.distance / zone);
-        else
-            t = 1f;
-
-        e.slot.localScale = new Vector3(t, t, t);
-    }
-
-    /// <summary>
-    /// Sample del path con extrapolacion lineal hacia atras del portal de entrada
-    /// (distance &lt; 0). Sin esto, distancias negativas todas caen sobre la boca
-    /// del portal (SamplePath internamente las clamp ea 0) y las cartas en cola
-    /// se solapan visualmente en un solo punto. La extrapolacion usa el tangente
-    /// del primer segmento para que la cola se extienda fuera del path en linea
-    /// recta hacia atras.
-    /// </summary>
-    void SampleBeltSlot(float distance, out Vector3 pos, out Vector3 tangent)
-    {
-        if (distance >= 0f)
-        {
-            path.SamplePath(distance, out pos, out tangent);
-            return;
-        }
-        path.SamplePath(0f, out Vector3 pos0, out tangent);
-        Vector3 dir = tangent.sqrMagnitude > 0.0001f ? tangent.normalized : Vector3.right;
-        pos = pos0 + dir * distance; // distance < 0 => mueve hacia atras
-    }
-
     float EffectiveEntrySpacing()
     {
         if (entrySpacing > 0f) return entrySpacing;
         return cardsSpawner != null ? cardsSpawner.CardSpacing : 0.2f;
     }
 
+    int ResolveCapacity()
+    {
+        var preset = ResolveActivePreset();
+        int presetCap = preset != null ? preset.capacity : 0;
+        if (presetCap > 0) return presetCap;
+
+        if (path == null || !path.HasArea) return 0;
+        float spacing = EffectiveEntrySpacing();
+        if (spacing <= 0f) return 1;
+        float length = path.GetPathLength();
+        return Mathf.Max(1, Mathf.FloorToInt((length - entryPathOffset) / spacing) + 1);
+    }
+
+    /// <summary>
+    /// Preset al que el componente le esta haciendo caso EN ESTE MOMENTO:
+    /// - En play: el ultimo que se aplico via ApplyPresetForLevel (= el del nivel cargado).
+    /// - En edit: el editorTargetPreset (el que el dev abre/guarda con los context menu),
+    ///   y si no esta seteado, el defaultPreset como fallback.
+    /// El gizmo usa este resultado para leer capacity, asi cambiar el capacity
+    /// del preset que estas editando refleja en el gizmo, sin tener que
+    /// reasignar el defaultPreset.
+    /// </summary>
+    BeltPreset ResolveActivePreset()
+    {
+        if (Application.isPlaying) return lastAppliedPreset;
+        if (presetIO == null) return null;
+        return presetIO.EditorTargetPreset != null ? presetIO.EditorTargetPreset : presetIO.DefaultPreset;
+    }
+
+    // --- Slot pool ---
+
+    void BuildSlotPool()
+    {
+        DestroySlotPool();
+        EnsureRefs();
+        if (!HasArea) return;
+
+        int cap = ResolveCapacity();
+        float spacing = EffectiveEntrySpacing();
+        float length = path.GetPathLength();
+
+        for (int i = 0; i < cap; i++)
+        {
+            float d = entryPathOffset + i * spacing;
+            if (d > length) break;
+
+            var go = new GameObject($"Slot_{i}");
+            go.transform.SetParent(slotsContainer, false);
+            path.SamplePath(d, out Vector3 pos, out Vector3 tan);
+            pos.y = cardY;
+            go.transform.position = pos;
+            if (tan.sqrMagnitude > 0.0001f)
+                go.transform.rotation = Quaternion.LookRotation(tan.normalized, Vector3.up)
+                                      * Quaternion.Euler(cardOnBeltEulerOffset);
+
+            slots.Add(new SlotInfo { index = i, transform = go.transform, baseOffset = d, occupant = null });
+        }
+        phase = 0f;
+        nextFillIndex = 0;
+    }
+
+    void Update()
+    {
+        if (!Application.isPlaying) return;
+        if (slots.Count == 0 || path == null || !HasArea) return;
+        float length = path.GetPathLength();
+        if (length <= 0f) return;
+
+        phase += beltSpeed * Time.deltaTime;
+        if (phase >= length) phase -= length;
+
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var s = slots[i];
+            if (s == null || s.transform == null) continue;
+            float d = (s.baseOffset + phase) % length;
+            path.SamplePath(d, out Vector3 pos, out Vector3 tan);
+            pos.y = cardY;
+            s.transform.position = pos;
+            if (tan.sqrMagnitude > 0.0001f)
+                s.transform.rotation = Quaternion.LookRotation(tan.normalized, Vector3.up)
+                                     * Quaternion.Euler(cardOnBeltEulerOffset);
+        }
+    }
+
+    float CurrentSlotDistance(SlotInfo s, float length)
+    {
+        if (length <= 0f) return s.baseOffset;
+        return (s.baseOffset + phase) % length;
+    }
+
+    void DestroySlotPool()
+    {
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var s = slots[i];
+            if (s == null || s.transform == null) continue;
+            if (Application.isPlaying) Destroy(s.transform.gameObject);
+            else DestroyImmediate(s.transform.gameObject);
+        }
+        slots.Clear();
+    }
+
     // --- API publica ---
 
+    /// <summary>
+    /// Reserva el primer slot libre (mas cercano al portal de entrada) para
+    /// una carta que viene del board. Devuelve null si la cinta esta llena.
+    /// </summary>
     public Transform AcquireSlot(Color color)
     {
         EnsureRefs();
-        if (!HasArea) return null;
+        if (slots.Count == 0) BuildSlotPool();
+        if (slots.Count == 0) return null;
 
-        // La cola se extiende HACIA ADELANTE en el path: la primera carta
-        // aterriza en entryPathOffset y cada nueva carta se ubica delante de la
-        // mas adelantada de la cola por un spacing. Las cartas avanzan todas
-        // juntas via belt; el orden de consumo (TryForwardEntry/TryFlushTo) se
-        // sigue manteniendo por orden de llegada porque iteran la lista
-        // 'entries', no por distancia.
-        float spacing = EffectiveEntrySpacing();
-        float length = path.GetPathLength();
-        float startDistance = entryPathOffset;
-        if (entries.Count > 0)
+        // Llenado en orden de pool: empezamos en nextFillIndex y avanzamos
+        // ciclicamente hasta encontrar el primer slot libre. Esto garantiza que
+        // las cartas entren siempre adyacentes a la ultima que entro, sin
+        // formar huecos por la rotacion del pool. Los slots que se liberen en
+        // el medio (por forward a un order) quedan como hueco hasta que el
+        // ciclo de fill vuelva a pasarles por arriba.
+        int found = -1;
+        for (int k = 0; k < slots.Count; k++)
         {
-            float maxDist = entries[0].distance;
-            for (int i = 1; i < entries.Count; i++)
-                if (entries[i].distance > maxDist) maxDist = entries[i].distance;
-            startDistance = Mathf.Max(entryPathOffset, maxDist + spacing);
+            int idx = (nextFillIndex + k) % slots.Count;
+            if (slots[idx].occupant == null) { found = idx; break; }
         }
-        if (length > 0f && startDistance >= length)
-            startDistance = length - spacing * 0.5f;
+        if (found < 0) return null;
+        nextFillIndex = (found + 1) % slots.Count;
+        var best = slots[found];
 
-        var slotGO = new GameObject("BeltSlot");
-        slotGO.transform.SetParent(slotsContainer, worldPositionStays: false);
-
-        SampleBeltSlot(startDistance, out Vector3 pos, out _);
-        pos.y = cardY;
-        slotGO.transform.position = pos;
-        slotGO.transform.localScale = Vector3.one;
-
-        var entry = new Entry
-        {
-            color = color,
-            slot = slotGO.transform,
-            distance = startDistance,
-            hasWrapped = false,
-            state = State.InFlightToBelt,
-        };
+        var entry = new Entry { color = color, slotInfo = best };
+        best.occupant = entry;
         entries.Add(entry);
-        return slotGO.transform;
+        return best.transform;
     }
 
     public void AttachCardToSlot(Transform slot, Transform card)
@@ -220,12 +258,14 @@ public class ConveyorBelt : MonoBehaviour
         if (entry == null) { Destroy(card.gameObject); return; }
 
         entry.card = card;
-        entry.state = State.Riding;
+        // Pegamos la carta al slot pero suavizamos el desfasaje que se acumulo
+        // mientras volaba: el target del DOJump fue la posicion del slot en el
+        // momento del click, y como el pool rota, el slot se movio un poco.
+        // Sin esto, hay un pop visible al aterrizar.
         card.SetParent(slot, worldPositionStays: true);
-        card.localPosition = Vector3.zero;
-        // Reset rotacion local: la carta hereda la orientacion del slot,
-        // que sigue el tangente del path (+ offset configurable).
-        card.localRotation = Quaternion.identity;
+        card.DOKill();
+        card.DOLocalMove(Vector3.zero, 0.12f).SetEase(DG.Tweening.Ease.OutQuad);
+        card.DOLocalRotateQuaternion(Quaternion.identity, 0.12f).SetEase(DG.Tweening.Ease.OutQuad);
 
         TryForwardEntry(entry);
     }
@@ -233,70 +273,41 @@ public class ConveyorBelt : MonoBehaviour
     void TryForwardEntry(Entry entry)
     {
         if (entry == null || entry.card == null || ordersManager == null) return;
-        var assign = ordersManager.AcquireNextSlot(entry.color);
-        if (assign.slot == null) return;
+        if (!HasAnyMatchingOrder(entry.color)) return;
+        ScheduleForward(entry);
+    }
 
-        var card = entry.card;
-        var sourceSlot = entry.slot;
-        entries.Remove(entry);
-
-        CardTransferTweens.BeltToOrder(card, sourceSlot, assign.slot, assign.order, BuildJumpParams());
+    bool HasAnyMatchingOrder(Color color)
+    {
+        if (ordersManager == null) return false;
+        foreach (var o in ordersManager.Orders)
+        {
+            if (o == null || o.IsFull) continue;
+            if (ColorUtil.ApproximatelyEqual(o.Color, color)) return true;
+        }
+        return false;
     }
 
     public void TryFlushTo(Order order)
     {
         if (order == null) return;
         Color color = order.Color;
-
-        // Iterar de mas vieja a mas nueva (FIFO): la primera carta que entro a la
-        // cinta sale primero. Reservamos el slot del order RECIEN en el delay para
-        // que, si otra ruta (TryForwardEntry o un flush concurrente sobre otra
-        // order del mismo color) ya tomo la entry o lleno la order, no quede una
-        // reserva "fantasma" que impida que la order se vuelva a llenar.
-        var candidates = new List<Entry>();
+        int cap = order.SlotCount;
+        int considered = 0;
         for (int i = 0; i < entries.Count; i++)
         {
+            if (considered >= cap) break;
             var entry = entries[i];
             if (entry.card == null) continue;
-            if (entry.state != State.Riding) continue;
             if (!ColorUtil.ApproximatelyEqual(entry.color, color)) continue;
-            candidates.Add(entry);
-        }
-
-        int cap = order.SlotCount;
-        int sent = 0;
-        foreach (var entry in candidates)
-        {
-            if (sent >= cap) break;
-            float delay = sent * flushStagger;
-            sent++;
-
-            var capturedEntry = entry;
-            var capturedOrder = order;
-            var jp = BuildJumpParams();
-
-            DG.Tweening.DOVirtual.DelayedCall(delay, () =>
-            {
-                if (capturedEntry == null || capturedEntry.card == null) return;
-                if (!entries.Contains(capturedEntry)) return;
-                if (capturedOrder == null || !ColorUtil.ApproximatelyEqual(capturedEntry.color, capturedOrder.Color)) return;
-
-                var orderSlot = capturedOrder.AcquireNextSlot(capturedEntry.color);
-                if (orderSlot == null) return;
-
-                var card = capturedEntry.card;
-                var sourceSlot = capturedEntry.slot;
-                entries.Remove(capturedEntry);
-                CardTransferTweens.BeltToOrder(card, sourceSlot, orderSlot, capturedOrder, jp);
-            });
+            considered++;
+            ScheduleForward(entry);
         }
     }
 
     /// <summary>
     /// Despues de que una order se refilea o se va abajo, intenta drenar el
-    /// resto de la cinta a CUALQUIER order disponible (no solo la que disparo
-    /// el evento). Cubre el caso en el que varias orders del mismo color
-    /// abren capacidad a la vez y la pasada original solo flusheo a una.
+    /// resto de la cinta a CUALQUIER order disponible.
     /// </summary>
     public void TryFlushToAny()
     {
@@ -305,89 +316,157 @@ public class ConveyorBelt : MonoBehaviour
         foreach (var entry in snapshot)
         {
             if (entry == null || entry.card == null) continue;
-            if (entry.state != State.Riding) continue;
             if (!entries.Contains(entry)) continue;
-            TryForwardEntry(entry);
+            if (!HasAnyMatchingOrder(entry.color)) continue;
+            ScheduleForward(entry);
         }
+    }
+
+    /// <summary>
+    /// Throttler global: encola un forward para que arranque en el proximo
+    /// hueco de la cadena, separando cada salida de la anterior por
+    /// flushStagger. Sin esto, varias cartas que llegan en el mismo frame se
+    /// ven como "un bloque" en lugar de carta-a-carta.
+    /// </summary>
+    void ScheduleForward(Entry entry)
+    {
+        if (entry == null) return;
+        if (entry.scheduled) return;
+        entry.scheduled = true;
+
+        float now = Time.time;
+        float scheduledAt = Mathf.Max(now, nextForwardTime);
+        float delay = scheduledAt - now;
+        nextForwardTime = scheduledAt + flushStagger;
+
+        var capturedEntry = entry;
+        if (delay <= 0.0001f) ExecuteForward(capturedEntry);
+        else DG.Tweening.DOVirtual.DelayedCall(delay, () => ExecuteForward(capturedEntry));
+    }
+
+    void ExecuteForward(Entry entry)
+    {
+        if (entry == null) return;
+        entry.scheduled = false;
+        if (entry.card == null || ordersManager == null) return;
+        if (!entries.Contains(entry)) return;
+
+        var assign = ordersManager.AcquireNextSlot(entry.color);
+        if (assign.slot == null) return;
+
+        var card = entry.card;
+        var sourceSlot = entry.slotInfo != null ? entry.slotInfo.transform : null;
+        // Liberar el slot del pool: la carta sale del belt, el slot vuelve a
+        // estar disponible para la proxima carta entrante.
+        if (entry.slotInfo != null) entry.slotInfo.occupant = null;
+        entries.Remove(entry);
+
+        CardTransferTweens.BeltToOrder(card, sourceSlot, assign.slot, assign.order, BuildJumpParams());
     }
 
     public void Clear()
     {
-        foreach (var e in entries)
+        for (int i = 0; i < entries.Count; i++)
         {
+            var e = entries[i];
+            if (e == null) continue;
             if (e.card != null) Destroy(e.card.gameObject);
-            if (e.slot != null) Destroy(e.slot.gameObject);
+            if (e.slotInfo != null) e.slotInfo.occupant = null;
         }
         entries.Clear();
+        nextForwardTime = 0f;
+        nextFillIndex = 0;
     }
 
     /// <summary>
-    /// Aplica el preset al belt. Si preset es null, usa el defaultPreset. La
-    /// regeneracion de visuales se dispara via <see cref="BeltPath.OnPathChanged"/>.
+    /// Aplica el preset al belt y reconstruye el slot pool segun la capacidad
+    /// del preset (o auto si capacity == 0).
     /// </summary>
     public void ApplyPresetForLevel(BeltPreset preset)
     {
         EnsureRefs();
+        Clear();
         if (presetIO != null) presetIO.ApplyPresetForLevel(preset);
+        lastAppliedPreset = preset != null ? preset : (presetIO != null ? presetIO.DefaultPreset : null);
+        BuildSlotPool();
     }
 
     Entry FindBySlot(Transform slot)
     {
-        foreach (var e in entries) if (e.slot == slot) return e;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var e = entries[i];
+            if (e != null && e.slotInfo != null && e.slotInfo.transform == slot) return e;
+        }
         return null;
     }
 
 #if UNITY_EDITOR
     /// <summary>
-    /// Edit-mode preview: pinta el punto donde aterriza la primera carta (frente
-    /// de cola = entryPathOffset) y las posiciones que tomarian las siguientes
-    /// si llegaran a la cinta sin que la primera haya avanzado todavia. Las
-    /// posiciones detras del portal (distance &lt; 0) se extrapolan en linea recta
-    /// segun el tangente del primer segmento.
+    /// Edit-mode preview del slot pool: dibuja una esfera por cada slot que
+    /// se generaria con el preset por defecto (o el ultimo aplicado en runtime)
+    /// y la capacity actual. Sirve para tunear entryPathOffset / entrySpacing /
+    /// BeltPreset.capacity sin entrar a play y ver donde van a aterrizar las
+    /// cartas.
     /// </summary>
     void OnDrawGizmos()
     {
-        if (!drawEntryGizmo) return;
+        if (!drawSlotsGizmo) return;
         if (path == null) path = GetComponent<BeltPath>();
+        if (presetIO == null) presetIO = GetComponent<BeltPresetIO>();
         if (path == null || !path.HasArea) return;
 
+        int cap = ResolveCapacity();
+        if (cap <= 0) return;
         float spacing = EffectiveEntrySpacing();
         float length = path.GetPathLength();
-        int n = Mathf.Max(1, entryGizmoPreviewCount);
 
-        // Frente de cola: donde aterriza la 1ra carta. Esfera verde grande.
-        SampleBeltSlot(entryPathOffset, out Vector3 frontPos, out _);
-        Vector3 front = new Vector3(frontPos.x, cardY, frontPos.z);
-        Gizmos.color = new Color(0.2f, 1f, 0.4f, 0.95f);
-        Gizmos.DrawSphere(front, 0.18f);
-        Gizmos.color = new Color(0.05f, 0.5f, 0.15f, 1f);
-        Gizmos.DrawWireSphere(front, 0.22f);
-
-        // Posiciones de cola: las siguientes cartas aterrizan ADELANTE en el
-        // path, no detras. Naranja si el calculo cae mas alla del exit portal
-        // (caso raro: la cinta esta saturada).
-        Vector3 prev = front;
-        for (int i = 1; i < n; i++)
+        Vector3 prev = Vector3.zero;
+        bool first = true;
+        int drawn = 0;
+        for (int i = 0; i < cap; i++)
         {
             float d = entryPathOffset + i * spacing;
-            bool pastExit = length > 0f && d >= length;
-            if (pastExit) d = length - spacing * 0.5f;
-            SampleBeltSlot(d, out Vector3 p, out _);
-            p.y = cardY;
-            float fade = 1f - (i / (float)n) * 0.7f;
-            Gizmos.color = pastExit
-                ? new Color(1f, 0.55f, 0.1f, fade * 0.85f)
-                : new Color(0.4f, 0.9f, 0.5f, fade * 0.85f);
-            Gizmos.DrawSphere(p, 0.12f);
-            Gizmos.color = new Color(Gizmos.color.r, Gizmos.color.g, Gizmos.color.b, 0.4f);
-            Gizmos.DrawLine(prev, p);
-            prev = p;
+            if (d > length) break;
+            path.SamplePath(d, out Vector3 pos, out _);
+            pos.y = cardY;
+
+            if (i == 0)
+            {
+                // Slot 0 (entrada) destacado.
+                Gizmos.color = new Color(0.2f, 1f, 0.4f, 0.95f);
+                Gizmos.DrawSphere(pos, 0.18f);
+                Gizmos.color = new Color(0.05f, 0.5f, 0.15f, 1f);
+                Gizmos.DrawWireSphere(pos, 0.22f);
+            }
+            else
+            {
+                float t = cap > 1 ? i / (float)(cap - 1) : 0f;
+                Gizmos.color = new Color(0.35f, 0.85f - t * 0.35f, 0.5f + t * 0.3f, 0.85f);
+                Gizmos.DrawSphere(pos, 0.12f);
+            }
+
+            if (!first)
+            {
+                Gizmos.color = new Color(0.2f, 0.7f, 0.3f, 0.35f);
+                Gizmos.DrawLine(prev, pos);
+            }
+            prev = pos;
+            first = false;
+            drawn++;
         }
 
-        // Etiqueta opcional sobre el frente.
+        // Label sobre el slot 0 con capacity actual, de donde sale el numero
+        // (preset o auto) y el nombre del preset que se esta usando.
+        path.SamplePath(entryPathOffset, out Vector3 fp, out _);
+        fp.y = cardY;
+        var activePreset = ResolveActivePreset();
+        bool capFromPreset = activePreset != null && activePreset.capacity > 0;
+        string capLabel = capFromPreset ? $"{drawn}" : $"{drawn} (auto)";
+        string presetLabel = activePreset != null ? activePreset.name : "(sin preset)";
         UnityEditor.Handles.color = new Color(0.7f, 1f, 0.8f, 1f);
-        UnityEditor.Handles.Label(front + Vector3.up * 0.35f,
-            $"Entry @ {entryPathOffset:0.00}\nspacing {spacing:0.00}");
+        UnityEditor.Handles.Label(fp + Vector3.up * 0.35f,
+            $"Preset: {presetLabel}\nSlots {capLabel}\nSpacing {spacing:0.00}");
     }
 #endif
 }

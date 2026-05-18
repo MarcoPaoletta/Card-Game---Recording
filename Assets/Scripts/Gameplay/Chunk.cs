@@ -98,6 +98,13 @@ public class Chunk : MonoBehaviour
         var box = GetComponent<Collider>();
         if (box != null) box.enabled = false;
 
+        // Sacar el chunk del registro del spawner ya mismo: a partir de aca
+        // este chunk no debe contar como blocker para CalculateChunkMove de
+        // otros chunks. Si esperamos hasta que termine la animacion, otro
+        // chunk clickeado en el medio rebotaria contra una posicion que en
+        // realidad esta libre.
+        if (spawner != null) spawner.UnregisterChunk(this);
+
         var ordered = SortCardsLeadingFirst(dirVec);
         foreach (var t in ordered)
         {
@@ -128,7 +135,8 @@ public class Chunk : MonoBehaviour
             remaining--;
             if (remaining <= 0)
             {
-                if (spawner != null) spawner.UnregisterChunk(this);
+                // El UnregisterChunk ya se hizo al arrancar el fly out; aca
+                // solo destruimos el GO una vez que todas las cartas llegaron.
                 Destroy(gameObject);
             }
         };

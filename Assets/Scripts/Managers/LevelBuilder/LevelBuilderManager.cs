@@ -37,10 +37,18 @@ public class LevelBuilderManager : MonoBehaviour
     private bool inBuilderMode;
     private int currentLevelIndex;
     private int levelCount;
+    // Cuantas "vueltas" enteras dio el jugador a la lista de niveles. Cada vez
+    // que NextLevel pasa del ultimo, sumamos levelCount aca y volvemos al
+    // index 0. El jugador ve "Nivel 4, 5, 6..." aunque internamente carguemos
+    // de nuevo level_0.json. El builder y el panel de niveles siguen usando
+    // currentLevelIndex (el real) para no romper la edicion.
+    private int displayLoopOffset;
 
     public int CurrentLevelIndex => currentLevelIndex;
     public int LevelCount => levelCount;
     public LevelData LevelData => levelData;
+    /// <summary>Numero de nivel mostrado al jugador (1-based, sigue creciendo al loopear).</summary>
+    public int DisplayLevelNumber => currentLevelIndex + displayLoopOffset + 1;
 
     void Awake()
     {
@@ -155,9 +163,19 @@ public class LevelBuilderManager : MonoBehaviour
 
     public void NextLevel()
     {
-        if (currentLevelIndex >= levelCount - 1) return;
+        if (levelCount <= 0) return;
         SaveCurrentLevel();
-        LoadLevel(currentLevelIndex + 1);
+        if (currentLevelIndex >= levelCount - 1)
+        {
+            // Loop disimulado: volvemos al primer nivel pero seguimos contando
+            // hacia arriba el numero mostrado al jugador.
+            displayLoopOffset += levelCount;
+            LoadLevel(0);
+        }
+        else
+        {
+            LoadLevel(currentLevelIndex + 1);
+        }
         RefreshAfterLevelChange();
     }
 
@@ -165,6 +183,9 @@ public class LevelBuilderManager : MonoBehaviour
     {
         if (index < 0 || index >= levelCount || index == currentLevelIndex) return;
         SaveCurrentLevel();
+        // Eleccion manual desde el builder: cortamos el loop visual para no
+        // confundir (el panel siempre muestra el indice real).
+        displayLoopOffset = 0;
         LoadLevel(index);
         editorUI.Refresh();
     }
@@ -175,6 +196,7 @@ public class LevelBuilderManager : MonoBehaviour
         int newIndex = levelCount;
         CreateEmptyLevelFile(newIndex);
         levelCount++;
+        displayLoopOffset = 0;
         LoadLevel(newIndex);
         editorUI.Refresh();
     }
@@ -186,6 +208,7 @@ public class LevelBuilderManager : MonoBehaviour
         if (levelCount <= 1) return;
         if (index < 0 || index >= levelCount) return;
         if (index != currentLevelIndex) SaveCurrentLevel();
+        displayLoopOffset = 0;
         store.Delete(index, levelCount);
         levelCount--;
         int next;

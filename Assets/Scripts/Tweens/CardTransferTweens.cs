@@ -73,7 +73,9 @@ public static class CardTransferTweens
 
     /// <summary>
     /// Belt -> Order. Desacopla la carta del slot de la cinta, la salta al slot
-    /// del order, la reparenta y notifica la entrega. Destruye el slot fuente.
+    /// del order, la reparenta y notifica la entrega. NO destruye el slot
+    /// fuente: en el nuevo modelo de slot pool, los slots son persistentes y
+    /// los administra <see cref="ConveyorBelt"/> (marca el occupant como null).
     /// </summary>
     public static Sequence BeltToOrder(Transform card, Transform beltSlot, Transform orderSlot, Order order, JumpParams jp)
     {
@@ -81,11 +83,6 @@ public static class CardTransferTweens
 
         card.SetParent(null, worldPositionStays: true);
         card.localScale = Vector3.one;
-        if (beltSlot != null)
-        {
-            if (Application.isPlaying) UnityEngine.Object.Destroy(beltSlot.gameObject);
-            else UnityEngine.Object.DestroyImmediate(beltSlot.gameObject);
-        }
 
         card.DOKill();
         var seq = DOTween.Sequence();

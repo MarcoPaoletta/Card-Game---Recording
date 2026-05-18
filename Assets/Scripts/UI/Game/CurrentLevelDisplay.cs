@@ -13,6 +13,6 @@ public class CurrentLevelDisplay : MonoBehaviour
     void LateUpdate()
     {
         if (builder == null || label == null) return;
-        label.text = $"Nivel {builder.CurrentLevelIndex + 1}";
+        label.text = $"Nivel {builder.DisplayLevelNumber}";
     }
 }
