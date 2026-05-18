@@ -57,6 +57,25 @@ Una **cadena** es una secuencia contigua de celdas con el mismo color **y** la m
 - Dos cadenas adyacentes del mismo color+dir son cadenas **distintas** si cada una tiene su propio `isEnd`. Esto permite poner dos commits del mismo color uno al lado del otro.
 - Si te equivocás con `isEnd`, `LevelData.NormalizeAllChunks()` lo recalcula al cargar.
 
+## Solvencia: las direcciones tienen que hacer el nivel jugable
+
+**El nivel debe ser pasable.** No basta con que el dibujo se vea lindo: las `dir` de los chunks definen el flujo de las cartas, y si dos chunks empujan cartas hacia la misma zona, chocan y el nivel se vuelve **imposible**.
+
+Regla práctica:
+
+- Antes de cerrar el diseño, simular mentalmente el flujo: cada chunk emite/entrega cartas en el sentido de su `dir`. ¿Hay dos chunks que terminan apuntando al mismo lugar o se cruzan en el mismo recorrido? Si sí, ajustar `dir`.
+- **Variar las direcciones** entre chunks vecinos para que el nivel sea entretenido. Todos los chunks con la misma `dir` suele ser aburrido y, peor, suele colisionar.
+- **Variar también la orientación** (no solo Right/Left, ni solo Up/Down). Un buen nivel mezcla chunks horizontales y verticales. Si un dibujo lo permite, partirlo en columnas en algunas zonas y en filas en otras — no romperlo todo en una sola orientación.
+- Caso típico de error: dos chunks en la **misma columna** ambos con `dir=Down` (1), o en la **misma fila** ambos con `dir=Right` (3). Casi siempre se pisan.
+- Solución típica: invertir la `dir` de uno de los dos chunks (uno hacia abajo, el otro hacia arriba; uno a la derecha, el otro a la izquierda).
+
+Ejemplo concreto del proyecto — Level 1 ("Cara Triste", [level_0.json](level_0.json)):
+
+- Chunk **rojo** en columna 0 (filas 0-3) con `dir=Down` y chunk **azul** en columna 0 (filas 6-11) con `dir=Down`: el azul empuja hacia abajo en la misma columna donde el rojo ya envió cartas → **impasable**.
+- Fix: el azul debe ir con `dir=Up` (0), `isEnd` en (0,6). Así rojo baja hacia (0,3) y azul sube hacia (0,6) — no se cruzan.
+
+Si dudás de la solvencia de un nivel que estás diseñando, marcá el riesgo en la respuesta y pedí confirmación antes de cerrar el JSON.
+
 ## Colores en uso
 
 Mantener consistencia con los colores ya establecidos en niveles previos. Los floats exactos son los que produce el round-trip de `Color` en Unity — pegarlos tal cual para que dos celdas del mismo "color lógico" comparen como iguales:
@@ -85,8 +104,9 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 2. Bocetar el dibujo en grid **empezando en (0,0)** (top-left bbox).
 3. Decidir cómo dividirlo en cadenas: agrupar celdas contiguas que comparten color+dir.
 4. Para cada cadena, marcar `isEnd=true` en la última celda según la `dir`.
-5. Escribir el JSON con pretty-print 4 espacios (`JsonUtility.ToJson(obj, true)` lo hace automático desde el código).
-6. `levelName` = `"Level {N+1} - {nombre temático}"` (ej: `level_3.json` → `"Level 4 - Corazon"`).
+5. **Verificar solvencia**: revisar que ningún par de chunks empuje cartas a la misma zona (ver sección "Solvencia"). Variar `dir` entre chunks vecinos.
+6. Escribir el JSON con pretty-print 4 espacios (`JsonUtility.ToJson(obj, true)` lo hace automático desde el código).
+7. `levelName` = `"Level {N+1} - {nombre temático}"` (ej: `level_3.json` → `"Level 4 - Corazon"`).
 
 ---
 
@@ -96,3 +116,5 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 
 - **2026-05-18**: El JSON debe persistirse pretty-printed (no en una línea). Se cambió `JsonUtility.ToJson(levelData)` → `JsonUtility.ToJson(levelData, true)` en `LevelBuilderManager.cs:133` y `:329`.
 - **2026-05-18**: El dibujo arranca en (0,0). Padding inicial = board más grande de lo necesario.
+- **2026-05-18**: Las `dir` definen jugabilidad, no sólo estética. Dos chunks que empujan cartas a la misma zona = nivel impasable. Variar direcciones entre chunks vecinos. Caso testigo: rojo y azul en columna 0 con `dir=Down` ambos → fix: azul con `dir=Up`. Ver sección "Solvencia".
+- **2026-05-18**: Variar también la **orientación**, no solo la dirección. Un nivel con solo chunks horizontales (todos Right/Left) queda monótono incluso si las direcciones alternan. Mezclar verticales y horizontales según lo permita el dibujo. Caso testigo: primera versión del corazón (level_3) tenía 8 chunks horizontales → rehecho como 8 verticales (parte superior, columnas) + 3 horizontales (taper inferior).
