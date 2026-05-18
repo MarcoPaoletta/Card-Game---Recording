@@ -206,35 +206,66 @@ public class ConveyorBelt : MonoBehaviour
         if (order == null) return;
         Color color = order.Color;
 
-        // Reservamos slots del order y disparamos cada salida con stagger.
-        // La entry permanece en `entries` (la carta sigue paseando por la cinta)
-        // hasta que le toca su turno, asi visualmente no se "congela" en su lugar.
-        int sentCount = 0;
-        for (int i = entries.Count - 1; i >= 0 && !order.IsFull; i--)
+        // Iterar de mas vieja a mas nueva (FIFO): la primera carta que entro a la
+        // cinta sale primero. Reservamos el slot del order RECIEN en el delay para
+        // que, si otra ruta (TryForwardEntry o un flush concurrente sobre otra
+        // order del mismo color) ya tomo la entry o lleno la order, no quede una
+        // reserva "fantasma" que impida que la order se vuelva a llenar.
+        var candidates = new List<Entry>();
+        for (int i = 0; i < entries.Count; i++)
         {
             var entry = entries[i];
-            if (!ColorUtil.ApproximatelyEqual(entry.color, color)) continue;
             if (entry.card == null) continue;
+            if (entry.state != State.Riding) continue;
+            if (!ColorUtil.ApproximatelyEqual(entry.color, color)) continue;
+            candidates.Add(entry);
+        }
 
-            var orderSlot = order.AcquireNextSlot(color);
-            if (orderSlot == null) break;
-
-            float delay = sentCount * flushStagger;
-            sentCount++;
+        int cap = order.SlotCount;
+        int sent = 0;
+        foreach (var entry in candidates)
+        {
+            if (sent >= cap) break;
+            float delay = sent * flushStagger;
+            sent++;
 
             var capturedEntry = entry;
-            var capturedOrderSlot = orderSlot;
             var capturedOrder = order;
             var jp = BuildJumpParams();
 
             DG.Tweening.DOVirtual.DelayedCall(delay, () =>
             {
                 if (capturedEntry == null || capturedEntry.card == null) return;
+                if (!entries.Contains(capturedEntry)) return;
+                if (capturedOrder == null || !ColorUtil.ApproximatelyEqual(capturedEntry.color, capturedOrder.Color)) return;
+
+                var orderSlot = capturedOrder.AcquireNextSlot(capturedEntry.color);
+                if (orderSlot == null) return;
+
                 var card = capturedEntry.card;
                 var sourceSlot = capturedEntry.slot;
                 entries.Remove(capturedEntry);
-                CardTransferTweens.BeltToOrder(card, sourceSlot, capturedOrderSlot, capturedOrder, jp);
+                CardTransferTweens.BeltToOrder(card, sourceSlot, orderSlot, capturedOrder, jp);
             });
+        }
+    }
+
+    /// <summary>
+    /// Despues de que una order se refilea o se va abajo, intenta drenar el
+    /// resto de la cinta a CUALQUIER order disponible (no solo la que disparo
+    /// el evento). Cubre el caso en el que varias orders del mismo color
+    /// abren capacidad a la vez y la pasada original solo flusheo a una.
+    /// </summary>
+    public void TryFlushToAny()
+    {
+        if (ordersManager == null) return;
+        var snapshot = new List<Entry>(entries);
+        foreach (var entry in snapshot)
+        {
+            if (entry == null || entry.card == null) continue;
+            if (entry.state != State.Riding) continue;
+            if (!entries.Contains(entry)) continue;
+            TryForwardEntry(entry);
         }
     }
 

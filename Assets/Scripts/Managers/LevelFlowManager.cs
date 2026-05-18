@@ -16,6 +16,7 @@ public class LevelFlowManager : MonoBehaviour
     private readonly Queue<Color> pendingOrderColors = new Queue<Color>();
     private int totalExpected;
     private int totalCompleted;
+    private bool levelCompleteFired;
 
     public event Action OnLevelComplete;
     public event Action OnLevelStarted;
@@ -34,6 +35,7 @@ public class LevelFlowManager : MonoBehaviour
         pendingOrderColors.Clear();
         totalExpected = 0;
         totalCompleted = 0;
+        levelCompleteFired = false;
 
         if (cells == null || cells.Count == 0)
         {
@@ -101,7 +103,11 @@ public class LevelFlowManager : MonoBehaviour
     {
         totalCompleted++;
         OnProgressChanged?.Invoke();
-        if (IsLevelComplete) OnLevelComplete?.Invoke();
+        if (!levelCompleteFired && IsLevelComplete)
+        {
+            levelCompleteFired = true;
+            OnLevelComplete?.Invoke();
+        }
     }
 
 }

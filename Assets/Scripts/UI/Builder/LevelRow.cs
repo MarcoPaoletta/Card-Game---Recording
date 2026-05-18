@@ -9,6 +9,7 @@ public class LevelRow : MonoBehaviour
     [SerializeField] private Button selectButton;
     [SerializeField] private Button upButton;
     [SerializeField] private Button downButton;
+    [SerializeField] private Button deleteButton;
     [SerializeField] private Image background;
 
     public void Setup(
@@ -16,9 +17,11 @@ public class LevelRow : MonoBehaviour
         bool isCurrent,
         bool canMoveUp,
         bool canMoveDown,
+        bool canDelete,
         Action onSelect,
         Action onUp,
-        Action onDown)
+        Action onDown,
+        Action onDelete)
     {
         if (nameText != null) nameText.text = label;
         if (background != null)
@@ -40,6 +43,12 @@ public class LevelRow : MonoBehaviour
             downButton.onClick.RemoveAllListeners();
             downButton.interactable = canMoveDown;
             downButton.onClick.AddListener(() => onDown?.Invoke());
+        }
+        if (deleteButton != null)
+        {
+            deleteButton.onClick.RemoveAllListeners();
+            deleteButton.interactable = canDelete;
+            deleteButton.onClick.AddListener(() => onDelete?.Invoke());
         }
     }
 }

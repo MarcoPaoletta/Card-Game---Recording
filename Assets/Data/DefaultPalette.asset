@@ -31,3 +31,5 @@ MonoBehaviour:
     color: {r: 0, g: 0.9, b: 0.9, a: 1}
   - label: White
     color: {r: 1, g: 1, b: 1, a: 1}
+  - label: Brown
+    color: {r: 0.5031446, g: 0.06487081, b: 0.06487081, a: 1}

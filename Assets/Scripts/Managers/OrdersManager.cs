@@ -91,7 +91,9 @@ public class OrdersManager : MonoBehaviour
         var down = order.PlayScaleDown();
         if (!refill)
         {
-            // Permanentemente abajo: no hay mas cartas que requieran esta order.
+            // Esta order ya no vuelve, pero puede haber cartas dando vueltas
+            // en la cinta que matcheen OTRA order que aun tenga capacidad.
+            if (reserve != null) reserve.TryFlushToAny();
             return;
         }
 
@@ -104,8 +106,15 @@ public class OrdersManager : MonoBehaviour
                 DOVirtual.DelayedCall(refillDelay, () =>
                 {
                     order.PlayScaleUp();
-                    // Despues de mostrar el order vacio, drenar lo que se pueda del reserve.
-                    if (reserve != null) reserve.TryFlushTo(order);
+                    // Drenar lo que se pueda hacia esta order (que recien abre con
+                    // un color nuevo) y, ademas, intentar drenar el resto de la
+                    // cinta a cualquier otra order disponible: si abrio mas de
+                    // una a la vez, no queremos que nadie quede esperando.
+                    if (reserve != null)
+                    {
+                        reserve.TryFlushTo(order);
+                        reserve.TryFlushToAny();
+                    }
                 });
             });
         }
@@ -113,7 +122,11 @@ public class OrdersManager : MonoBehaviour
         {
             order.ResetSlots();
             order.SetColor(nextColor);
-            if (reserve != null) reserve.TryFlushTo(order);
+            if (reserve != null)
+            {
+                reserve.TryFlushTo(order);
+                reserve.TryFlushToAny();
+            }
         }
     }
 

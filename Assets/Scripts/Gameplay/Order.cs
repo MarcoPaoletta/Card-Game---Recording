@@ -13,6 +13,7 @@ public class Order : MonoBehaviour
     private Transform[] slots;
     private int reservedCount;
     private int deliveredCount;
+    private bool fillNotified;
     private Vector3 originalScale;
 
     public bool IsFull => slots != null && reservedCount >= slots.Length;
@@ -59,8 +60,13 @@ public class Order : MonoBehaviour
 
     public void NotifyDelivered()
     {
-        deliveredCount++;
-        if (slots != null && deliveredCount >= slots.Length) OnFilled?.Invoke(this);
+        if (slots == null) return;
+        if (deliveredCount < slots.Length) deliveredCount++;
+        if (!fillNotified && deliveredCount >= slots.Length)
+        {
+            fillNotified = true;
+            OnFilled?.Invoke(this);
+        }
     }
 
     public Tween PlayScaleDown()
@@ -86,6 +92,7 @@ public class Order : MonoBehaviour
         }
         reservedCount = 0;
         deliveredCount = 0;
+        fillNotified = false;
     }
 
     /// <summary>

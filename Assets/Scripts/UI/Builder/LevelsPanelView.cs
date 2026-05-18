@@ -52,9 +52,11 @@ public class LevelsPanelView : MonoBehaviour
                 isCurrent: idx == current,
                 canMoveUp: idx > 0,
                 canMoveDown: idx < count - 1,
+                canDelete: count > 1,
                 onSelect: () => manager.SelectLevel(idx),
                 onUp:     () => manager.MoveLevelUp(idx),
-                onDown:   () => manager.MoveLevelDown(idx));
+                onDown:   () => manager.MoveLevelDown(idx),
+                onDelete: () => manager.DeleteLevel(idx));
         }
     }
 }

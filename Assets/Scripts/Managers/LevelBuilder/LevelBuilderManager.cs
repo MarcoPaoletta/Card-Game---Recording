@@ -1,7 +1,11 @@
 using System.Collections.Generic;
+using DG.Tweening;
+using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.Serialization;
+using UnityEngine.UI;
 
 /// <summary>
 /// Maneja la carga/guardado/seleccion de niveles, el toggle del modo builder
@@ -40,6 +44,13 @@ public class LevelBuilderManager : MonoBehaviour
 
     void Awake()
     {
+        // Bump por defecto (200 tweeners / 50 sequences) es bajo cuando varios
+        // chunks salen del board a la vez: cada carta dispara DOMove + DOJump +
+        // DORotate, ademas de los tweens de cinta y feedback. Si se supera el
+        // limite DOTween descarta tweens silenciosamente y aparecen cartas que
+        // "no llegan" a destino.
+        DOTween.SetTweensCapacity(1000, 200);
+
         levelData = Instantiate(levelDataAsset);
         levelData.cells = new List<CellEntry>();
 
@@ -65,8 +76,21 @@ public class LevelBuilderManager : MonoBehaviour
 
     void Update()
     {
-        if (Keyboard.current.bKey.wasPressedThisFrame)
+        if (Keyboard.current.bKey.wasPressedThisFrame && !IsEditingTextField())
             ToggleBuilderMode();
+    }
+
+    static bool IsEditingTextField()
+    {
+        var es = EventSystem.current;
+        if (es == null) return false;
+        var sel = es.currentSelectedGameObject;
+        if (sel == null) return false;
+        var tmp = sel.GetComponent<TMP_InputField>();
+        if (tmp != null && tmp.isFocused) return true;
+        var legacy = sel.GetComponent<InputField>();
+        if (legacy != null && legacy.isFocused) return true;
+        return false;
     }
 
     // --- Builder mode ---
@@ -155,12 +179,19 @@ public class LevelBuilderManager : MonoBehaviour
         editorUI.Refresh();
     }
 
-    public void DeleteCurrentLevel()
+    public void DeleteCurrentLevel() => DeleteLevel(currentLevelIndex);
+
+    public void DeleteLevel(int index)
     {
         if (levelCount <= 1) return;
-        store.Delete(currentLevelIndex, levelCount);
+        if (index < 0 || index >= levelCount) return;
+        if (index != currentLevelIndex) SaveCurrentLevel();
+        store.Delete(index, levelCount);
         levelCount--;
-        int next = Mathf.Min(currentLevelIndex, levelCount - 1);
+        int next;
+        if (index < currentLevelIndex) next = currentLevelIndex - 1;
+        else if (index == currentLevelIndex) next = Mathf.Min(currentLevelIndex, levelCount - 1);
+        else next = currentLevelIndex;
         LoadLevel(next);
         editorUI.Refresh();
     }
