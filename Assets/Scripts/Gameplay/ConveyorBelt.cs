@@ -182,8 +182,21 @@ public class ConveyorBelt : MonoBehaviour
         float length = path.GetPathLength();
         if (length <= 0f) return;
 
-        phase += beltSpeed * Time.deltaTime;
-        if (phase >= length) phase -= length;
+        // Si la cinta esta totalmente vacia, congelamos la rotacion y rebobinamos
+        // a phase=0. Asi los slots quedan en su posicion inicial (slot 0 al
+        // principio del path) y la proxima carta que entre lo va a hacer
+        // siempre desde el portal de entrada, no desde un punto cualquiera
+        // segun donde haya quedado el pool girando solo.
+        if (entries.Count > 0)
+        {
+            phase += beltSpeed * Time.deltaTime;
+            if (phase >= length) phase -= length;
+        }
+        else
+        {
+            if (phase != 0f) phase = 0f;
+            if (nextFillIndex != 0) nextFillIndex = 0;
+        }
 
         for (int i = 0; i < slots.Count; i++)
         {
@@ -294,7 +307,11 @@ public class ConveyorBelt : MonoBehaviour
         Color color = order.Color;
         int cap = order.SlotCount;
         int considered = 0;
-        for (int i = 0; i < entries.Count; i++)
+        // Iteramos de la mas reciente a la mas vieja: las cartas que entraron
+        // ultimas (slots con indice mas alto, mas adelantadas en el path) salen
+        // primero hacia el order. Asi el belt se va vaciando "desde el frente"
+        // y las que estan recien entrando, en los slots de atras, se quedan.
+        for (int i = entries.Count - 1; i >= 0; i--)
         {
             if (considered >= cap) break;
             var entry = entries[i];
@@ -313,8 +330,11 @@ public class ConveyorBelt : MonoBehaviour
     {
         if (ordersManager == null) return;
         var snapshot = new List<Entry>(entries);
-        foreach (var entry in snapshot)
+        // Mismo criterio que TryFlushTo: sacar primero las cartas mas recientes
+        // (slots mas adelantados en el pool).
+        for (int i = snapshot.Count - 1; i >= 0; i--)
         {
+            var entry = snapshot[i];
             if (entry == null || entry.card == null) continue;
             if (!entries.Contains(entry)) continue;
             if (!HasAnyMatchingOrder(entry.color)) continue;
@@ -433,10 +453,11 @@ public class ConveyorBelt : MonoBehaviour
 
             if (i == 0)
             {
-                // Slot 0 (entrada) destacado.
-                Gizmos.color = new Color(0.2f, 1f, 0.4f, 0.95f);
+                // Slot 0 (donde aterriza el tween de entrada). Naranja para
+                // diferenciarlo del verde de los slots de capacity.
+                Gizmos.color = new Color(1f, 0.55f, 0.1f, 0.95f);
                 Gizmos.DrawSphere(pos, 0.18f);
-                Gizmos.color = new Color(0.05f, 0.5f, 0.15f, 1f);
+                Gizmos.color = new Color(0.6f, 0.3f, 0.05f, 1f);
                 Gizmos.DrawWireSphere(pos, 0.22f);
             }
             else
