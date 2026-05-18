@@ -14,7 +14,7 @@ public class LevelValidator
         this.palette = palette;
     }
 
-    public bool Validate(List<CellEntry> cells, out string error)
+    public bool Validate(List<CellEntry> cells, out string error, List<PaletteEntry> levelPalette = null)
     {
         error = null;
         if (cells == null || cells.Count == 0) return true;
@@ -36,7 +36,7 @@ public class LevelValidator
         foreach (var c in firstSeen)
         {
             if (counts[c] % 2 != 0)
-                oddGroups.Add($"  - {ColorNameFor(c)}: {counts[c]} celdas (impar)");
+                oddGroups.Add($"  - {ColorNameFor(c, levelPalette)}: {counts[c]} celdas (impar)");
         }
 
         if (oddGroups.Count > 0)
@@ -48,8 +48,18 @@ public class LevelValidator
         return true;
     }
 
-    string ColorNameFor(Color c)
+    string ColorNameFor(Color c, List<PaletteEntry> levelPalette)
     {
+        // 1) Paleta del nivel tiene prioridad (mas semantica para imagenes).
+        if (levelPalette != null)
+        {
+            foreach (var entry in levelPalette)
+            {
+                if (ColorUtil.Quantize(entry.color) == c && !string.IsNullOrEmpty(entry.label))
+                    return entry.label;
+            }
+        }
+        // 2) Fallback a paleta default.
         if (palette != null && palette.entries != null)
         {
             foreach (var entry in palette.entries)

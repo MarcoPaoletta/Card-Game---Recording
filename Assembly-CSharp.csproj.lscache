@@ -94,6 +94,7 @@ Assets/Scripts/UI/Builder/
  LevelRow.cs
  LevelsPanelView.cs
  PaletteButton.cs
+ PaletteToggleButton.cs
  PaletteView.cs
 Assets/Scripts/UI/Game/
  CurrentLevelDisplay.cs

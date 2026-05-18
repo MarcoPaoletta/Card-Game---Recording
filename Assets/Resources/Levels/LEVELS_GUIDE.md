@@ -76,7 +76,18 @@ Ejemplo concreto del proyecto — Level 1 ("Cara Triste", [level_0.json](level_0
 
 Si dudás de la solvencia de un nivel que estás diseñando, marcá el riesgo en la respuesta y pedí confirmación antes de cerrar el JSON.
 
-## Colores en uso
+## Paletas
+
+Hay **dos** fuentes de color que conviven:
+
+1. **DefaultPalette** ([Assets/Data/DefaultPalette.asset](../../Data/DefaultPalette.asset)): paleta global, 10 colores fijos (Empty, Red, Blue, Green, Yellow, Purple, Orange, Cyan, White, Brown). Esta paleta **no se modifica** automáticamente cuando se generan niveles desde imágenes.
+2. **`levelPalette` embebida en el JSON del nivel**: lista opcional dentro de `LevelData`. Usada para niveles generados desde imágenes (que traen colores fuera de la default). Vive solo en el JSON del nivel, no contamina la default.
+
+El builder permite cambiar entre ambas con el botón **"Paleta: Default / Nivel"** (componente `PaletteToggleButton` en `ControlsRow`). Si el nivel no tiene paleta propia, el toggle queda deshabilitado.
+
+**Importante**: cuando Claude genera un nivel desde una imagen, agrega los colores como `levelPalette` del nivel — **no** los suma a la DefaultPalette.
+
+## Colores en uso (DefaultPalette / niveles a mano)
 
 Mantener consistencia con los colores ya establecidos en niveles previos. Los floats exactos son los que produce el round-trip de `Color` en Unity — pegarlos tal cual para que dos celdas del mismo "color lógico" comparen como iguales:
 
@@ -98,6 +109,39 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 - Vacío (`""`) = cae al `defaultPreset` del componente.
 - Los assets están en `Resources/BeltPresets/`. Para listar los disponibles, mirar esa carpeta.
 
+## Workflow: niveles desde imágenes (pixel art)
+
+**Regla: máximo 14×14 celdas por nivel.** Más grande satura el board y tapa la vista de juego (orders/reserves). Si la imagen original es muy detallada, **hand-design** una versión simplificada a 14×14 en lugar de auto-downsamplear (el auto-downsample a 14×14 pierde la silueta y queda abstracto).
+
+### Cuándo funciona el auto-downsample vs. cuándo hace falta hand-design
+
+- **Auto-downsample sirve** si la imagen es **pixel art puro**: cada pixel del source es un color sólido (sin anti-aliasing), sin gridlines auxiliares, sin marca de agua, fondo plano. En ese caso el snap a paleta es 1:1 y el resultado a 14×14 conserva la silueta.
+- **Auto-downsample falla** con: imágenes renderizadas con anti-aliasing, JPEGs con compresión, PNGs con gridlines o texto de fondo, sprites a alta resolución con muchos colores intermedios. El promediado mezcla los bordes con el outline y cae en colores intermedios que no representan nada.
+- **En caso de duda, hand-designear** capturando la silueta esencial. Se construye con loops/`SetValue` directos sobre un `[int[,]]` 14×14 — cada celda asignada explícitamente a un índice de paleta. Más confiable que string templates (errores de conteo de chars al typear).
+
+Cuando el usuario pasa una imagen pixel-art (ej. la casita), seguir este pipeline manualmente:
+
+1. **Inspeccionar imagen**: leer dimensiones y colores únicos. Tope de grid: 14×14. Para imágenes complejas, pensar la silueta esencial (techo, paredes, ventanas, puerta, etc) y dibujarla a mano respetando los colores del original.
+2. **Detectar background**: el color del fondo (cielo, transparente) **no genera celdas**. Si la imagen tiene alfa, alpha=0 = empty; si no, el color dominante del borde suele ser el fondo.
+3. **Cuantizar a paleta del nivel**: agrupar variantes cercanas (anti-aliasing, JPEG) al color dominante de cada cluster. Producir una `levelPalette` con labels semánticos (ej: `"Tejado"`, `"PuertaAzul"`, `"Cesped"`). Típicamente 5–15 colores.
+4. **Mapear pixeles → celdas**: para cada pixel no-background, generar `CellEntry` con `x,y` directos del pixel y el color cuantizado correspondiente.
+5. **Particionar en chunks**: para cada color, agrupar celdas contiguas. Romper cada blob en runs **horizontales y verticales mezclados** (regla "variar orientación" — ver sección "Solvencia").
+6. **Asignar `dir` con solvencia**: alternar Down/Up entre verticales vecinos y Right/Left entre horizontales vecinos. Marcar `isEnd=true` en la última celda según `dir`.
+7. **Chequeo de paridad**: contar celdas por color cuantizado. Si alguno es **impar**, **reportar al usuario** la lista de colores impares y dejarlo decidir qué celda agregar/quitar (y dónde). No tocar la imagen automáticamente.
+8. **Emitir JSON**: `level_N.json` con `levelPalette` embebida + `cells` + indent 4 espacios (`JsonUtility.ToJson(..., true)`). El nivel **no contamina** DefaultPalette.
+
+### Ejemplo de `levelPalette` en JSON
+
+```jsonc
+"levelPalette": [
+    { "label": "Tejado", "color": { "r": 0.72, "g": 0.28, "b": 0.20, "a": 1.0 } },
+    { "label": "Pared",  "color": { "r": 1.0,  "g": 1.0,  "b": 1.0,  "a": 1.0 } },
+    { "label": "Puerta", "color": { "r": 0.35, "g": 0.45, "b": 0.55, "a": 1.0 } }
+]
+```
+
+El builder muestra estos colores cuando el usuario clickea el toggle a "Paleta: Nivel".
+
 ## Workflow para crear un nivel a mano
 
 1. Elegir el índice `N` libre → archivo `level_N.json`.
@@ -118,3 +162,7 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 - **2026-05-18**: El dibujo arranca en (0,0). Padding inicial = board más grande de lo necesario.
 - **2026-05-18**: Las `dir` definen jugabilidad, no sólo estética. Dos chunks que empujan cartas a la misma zona = nivel impasable. Variar direcciones entre chunks vecinos. Caso testigo: rojo y azul en columna 0 con `dir=Down` ambos → fix: azul con `dir=Up`. Ver sección "Solvencia".
 - **2026-05-18**: Variar también la **orientación**, no solo la dirección. Un nivel con solo chunks horizontales (todos Right/Left) queda monótono incluso si las direcciones alternan. Mezclar verticales y horizontales según lo permita el dibujo. Caso testigo: primera versión del corazón (level_3) tenía 8 chunks horizontales → rehecho como 8 verticales (parte superior, columnas) + 3 horizontales (taper inferior).
+- **2026-05-18**: Niveles basados en imágenes usan **paleta por nivel** (campo `levelPalette` en el JSON), no DefaultPalette. Los colores de la imagen no se agregan a la default. El builder muestra ambas paletas y el usuario cambia con el botón "Paleta: Default / Nivel". `LevelValidator` también reconoce la paleta del nivel para nombrar colores con labels semánticos en errores.
+- **2026-05-18**: **Máximo grid 14×14**. 34×34 satura el board (tapa orders/reserves) y al auto-downsamplear a 14×14 se pierde la silueta. Para imágenes complejas, hand-designear la versión 14×14 capturando la silueta esencial con los colores del original. Caso testigo: casita (level_4) — primera versión auto a 34×34 ocupaba toda la pantalla; segunda auto a 14×14 quedó abstracta; tercera hand-designed a 14×14 = silueta clara (techo triangular, paredes, ventanas, puerta, arbustos).
+- **2026-05-18**: **Auto-downsample solo funciona con pixel art puro** (sin anti-alias, sin gridlines, sin marca de agua). Imágenes con JPG/PNG renderizado de alta resolución producen "barro" al compresar a 14×14. Default para imágenes generales: hand-design.
+- **2026-05-18**: **Construir el map 14×14 con loops/`SetValue` directos** sobre un `[int[,]]`, no con string templates. Los string templates ("..133..." etc) son muy propensos a errores de conteo de chars al typear. Patrón: `$m = [int[,]]::new(14,14); $m.SetValue($v,$x,$y)` por celda o `for ($x=...) { $m.SetValue(...) }` por run.

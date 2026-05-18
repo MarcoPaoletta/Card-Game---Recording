@@ -112,7 +112,8 @@ public class LevelBuilderManager : MonoBehaviour
         }
         else
         {
-            if (!validator.Validate(levelData != null ? levelData.cells : null, out string error))
+            if (!validator.Validate(levelData != null ? levelData.cells : null, out string error,
+                                     levelData != null ? levelData.levelPalette : null))
             {
                 Debug.LogError($"[LevelBuilderManager] No se puede salir del builder:\n{error}");
                 return;
@@ -137,6 +138,11 @@ public class LevelBuilderManager : MonoBehaviour
     {
         if (index < 0) index = 0;
         if (index >= levelCount) index = Mathf.Max(0, levelCount - 1);
+
+        // Reset campos que pueden no venir en el JSON del proximo nivel: si no se resetean,
+        // FromJsonOverwrite los deja con valores del nivel anterior. cells siempre viene,
+        // pero levelPalette solo aparece en niveles generados desde imagenes.
+        levelData.levelPalette = new List<PaletteEntry>();
 
         string json = store.Read(index);
         string note = "";

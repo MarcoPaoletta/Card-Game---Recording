@@ -19,6 +19,8 @@ public class LevelData : ScriptableObject
     public string levelName = "Nivel 1";
     [Tooltip("Nombre del BeltPreset (asset en Resources/BeltPresets) a usar para la cinta en este nivel. Vacio = default.")]
     public string beltPresetName = "";
+    [Tooltip("Paleta embebida del nivel (ej. niveles generados desde imagenes). El builder la muestra como alternativa al DefaultPalette. Vacia = el nivel no tiene paleta propia.")]
+    public List<PaletteEntry> levelPalette = new List<PaletteEntry>();
     public List<CellEntry> cells = new List<CellEntry>();
 
     public bool TryGet(int x, int y, out CellEntry entry)

@@ -15,6 +15,7 @@ public class LevelEditorUI : MonoBehaviour
     public void OverrideLevelData(LevelData runtime)
     {
         if (gridView != null) gridView.OverrideLevelData(runtime);
+        if (paletteView != null) paletteView.SetCurrentLevel(runtime);
     }
 
     public void Show() { builderCanvas?.SetActive(true); Refresh(); }
@@ -25,6 +26,7 @@ public class LevelEditorUI : MonoBehaviour
         if (nameDisplay != null) nameDisplay.Refresh();
         if (noteInput  != null) noteInput.Refresh();
         if (gridView   != null) gridView.Refresh();
+        if (paletteView != null) paletteView.Refresh();
         if (levelsPanel != null && levelsPanel.IsOpen) levelsPanel.Refresh();
         if (beltPresetSelector != null) beltPresetSelector.Refresh();
     }
