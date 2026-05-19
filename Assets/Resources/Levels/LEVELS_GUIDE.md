@@ -109,9 +109,37 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 - Vacío (`""`) = cae al `defaultPreset` del componente.
 - Los assets están en `Resources/BeltPresets/`. Para listar los disponibles, mirar esa carpeta.
 
-## Workflow: niveles desde imágenes (pixel art)
+## Workflow: niveles desde imágenes (pixel art) — TRADUCCIÓN ESTRICTA
 
-**Regla: máximo 14×14 celdas por nivel.** Más grande satura el board y tapa la vista de juego (orders/reserves). Si la imagen original es muy detallada, **hand-design** una versión simplificada a 14×14 en lugar de auto-downsamplear (el auto-downsample a 14×14 pierde la silueta y queda abstracto).
+**No interpretar la imagen. Traducir pixel-por-pixel.** El usuario pasa pixel-art upscaleado (ej. 1200×1200 con cada "pixel lógico" como un bloque NxN). El pipeline:
+
+1. **Detecta el block size natural** de la imagen analizando uniformidad de bloques candidatos (grids 8..20). Pick = grid con mayor uniformity con preferencia por grid chico (block grande).
+2. **Detecta background** del corner sample(s). Celdas con color cercano al bg se skipean.
+3. **Bbox del contenido**: snap a múltiplos del block size.
+4. **Sample center color** de cada pixel lógico → cluster en paleta del nivel (threshold euclidiana ajustable, default ~1500 squared).
+5. **Auto-label** colores (Rojo, Negro, Blanco, Verde, etc) por heurística HSV/RGB.
+6. **Auto-fix parity** removiendo celdas con menor `sameN` de colores impares.
+7. **Chunkear** con orientaciones mezcladas + alternancia de dirs.
+8. **Emit JSON** con `levelPalette` embebida y bbox top-left en (0,0).
+
+El tamaño de la grilla **lo define la imagen** (típicamente 14×14 a 20×20). La regla anterior de "max 14×14 obligatorio" se relaja a "max 20×20" en el detector — si la imagen tiene más fidelidad, se respeta hasta ese tope. Para imágenes con block size natural mayor (más de 20 lógicos), la salida cae a 20 con menor fidelidad.
+
+**Cuándo NO usar el pipeline auto:**
+- Imagen sin pixel art puro (foto, ilustración pintada, etc.).
+- Block size detectado da uniformidad <85% → la imagen tiene anti-alias fuerte. Subir threshold o pre-procesar (posterize en GIMP).
+- El usuario explícitamente quiere una versión simplificada → hand-design.
+
+### Evitar chunks de 1 sola celda
+
+**Un chunk de 1 sola celda se renderiza sin flecha** porque la única celda es `isEnd=true` (destino) y no hay celda "anterior" donde dibujar la dirección. Visualmente queda como una celda muda.
+
+Regla: **toda celda de un color X debe tener al menos 1 vecino 4-conectado del mismo color X** que no esté ya asignado a otro chunk al momento de procesarla. En la práctica eso significa:
+
+- Diseñar features (ojos, narices, manchas) como pares de celdas (1×2 vertical o 2×1 horizontal) en lugar de pixeles aislados.
+- Outlines mejor **rectangulares** que en curva diagonal: una curva tipo step (un pixel al lado del otro en diagonal) genera celdas aisladas porque no son 4-conectadas.
+- Si un outline tiene que cambiar de columna entre dos filas, asegurarse que el pixel "corner" esté conectado vertical u horizontalmente con un pixel del mismo color (no solo diagonal).
+
+El pipeline detecta y avisa con `WARNING: N single-cell chunks (sin flecha)`. Si el output trae singletons, rediseñar.
 
 ### Cuándo funciona el auto-downsample vs. cuándo hace falta hand-design
 
@@ -166,3 +194,5 @@ El builder muestra estos colores cuando el usuario clickea el toggle a "Paleta: 
 - **2026-05-18**: **Máximo grid 14×14**. 34×34 satura el board (tapa orders/reserves) y al auto-downsamplear a 14×14 se pierde la silueta. Para imágenes complejas, hand-designear la versión 14×14 capturando la silueta esencial con los colores del original. Caso testigo: casita (level_4) — primera versión auto a 34×34 ocupaba toda la pantalla; segunda auto a 14×14 quedó abstracta; tercera hand-designed a 14×14 = silueta clara (techo triangular, paredes, ventanas, puerta, arbustos).
 - **2026-05-18**: **Auto-downsample solo funciona con pixel art puro** (sin anti-alias, sin gridlines, sin marca de agua). Imágenes con JPG/PNG renderizado de alta resolución producen "barro" al compresar a 14×14. Default para imágenes generales: hand-design.
 - **2026-05-18**: **Construir el map 14×14 con loops/`SetValue` directos** sobre un `[int[,]]`, no con string templates. Los string templates ("..133..." etc) son muy propensos a errores de conteo de chars al typear. Patrón: `$m = [int[,]]::new(14,14); $m.SetValue($v,$x,$y)` por celda o `for ($x=...) { $m.SetValue(...) }` por run.
+- **2026-05-18**: **Single-cell chunks no muestran flecha** porque la única celda es `isEnd=true`. Diseñar features como pares (1×2 vertical o 2×1 horizontal). Outlines preferentemente **rectangulares** (filas completas y columnas completas) en vez de curvas diagonales. Caso testigo: primer Pikachu tenía ojos como 1 pixel suelto (4,5) y (9,5) → singletons. Fix: ojos como 1×2 vertical (4,5)-(4,6) y (9,5)-(9,6). Tambien rediseñé head de Pikachu y AmongUs con outline rectangular (fila completa arriba/abajo, columnas completas izquierda/derecha) para evitar "step corners" diagonales que generaban outline cells aisladas en esquinas.
+- **2026-05-19**: **Traducción estricta pixel-por-pixel es la default para imágenes**. El usuario explicitó: "no quiero que trates de interpretar la imagen, traducila en pixeles para el json". El detector de block-size automático (script `_translate.ps1`) prueba grids 8..20 con uniformity check (corners de cada bloque dentro de threshold 50 RGB-Euclidean), pickea el grid con mayor score con preferencia por grid menor (block mayor). Paleta se deriva de los colores reales del source via clustering (threshold ~1500 squared). El grid del nivel = grid natural del source (típicamente 14..20). Singletons se preservan por fidelidad — el pipeline avisa pero no los borra. Caso testigo: la "pizza_2_2_16_16.jpg" que yo interpreté mal como "Pikachu" → con traducción estricta queda como pizza (5 colores: blanco, negro, marrón, amarillo, rojo) y silueta correcta. Lección: NUNCA renombrar interpretando el subject; usar el filename o pedir nombre al usuario.
