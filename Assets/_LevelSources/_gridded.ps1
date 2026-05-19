@@ -268,7 +268,85 @@ function Translate-Gridded {
         else { $counts[$base]++; $labels[$i] = "$base$($counts[$base])" }
     }
 
-    # Find bbox of drawn cells
+    # ===== Paridad auto-fix: remover una celda EXTERIOR por color impar =====
+    # El juego necesita conteos pares (los chunks se forman de a pares de cartas).
+    # Antes el pipeline solo reportaba imparidad y dejaba al user fixearlo a mano.
+    # Ahora: para cada color con count impar, removemos la celda con MAS vecinos
+    # bg (la mas exterior — quitar una "punta" del borde casi no afecta la
+    # silueta). Si todas las celdas estan internas (sin vecinos bg), elegimos
+    # la mas lejos del centroide del color (PUNTA mas alejada del grueso).
+    # Reportamos al user que celdas se removieron para que pueda revisar.
+    $parityDeltas = @(@{dx=1;dy=0}, @{dx=-1;dy=0}, @{dx=0;dy=1}, @{dx=0;dy=-1})
+    $paletteCount0 = $palette.Count + 1
+    $colorCounts0 = New-Object int[] $paletteCount0
+    for ($cy=0;$cy -lt $cellsH;$cy++) { for ($cx=0;$cx -lt $cellsW;$cx++) { $colorCounts0[$cellPal.GetValue($cx,$cy)]++ } }
+    $autoOps = @()
+    for ($colorIdx=1; $colorIdx -lt $paletteCount0; $colorIdx++) {
+        if ($colorCounts0[$colorIdx] % 2 -eq 0) { continue }
+        $count = $colorCounts0[$colorIdx]
+        # CASO 1: count == 1 (singleton, ej: lengua del perro). REMOVER eliminaria
+        # el feature entero → AGREGAR un vecino bg para hacer 2 cells.
+        if ($count -eq 1) {
+            $scx = -1; $scy = -1
+            for ($cy=0;$cy -lt $cellsH;$cy++) { for ($cx=0;$cx -lt $cellsW;$cx++) {
+                if ($cellPal.GetValue($cx,$cy) -eq $colorIdx) { $scx = $cx; $scy = $cy; break }
+            }; if ($scx -ge 0) { break } }
+            # Buscar vecino bg para extender. Preferir el de mas vecinos bg (mas exterior).
+            $bestNx = -1; $bestNy = -1; $bestNbg = -1
+            foreach ($d in $parityDeltas) {
+                $nx = $scx + $d.dx; $ny = $scy + $d.dy
+                if ($nx -lt 0 -or $nx -ge $cellsW -or $ny -lt 0 -or $ny -ge $cellsH) { continue }
+                if ($cellPal.GetValue($nx,$ny) -ne 0) { continue }
+                $nbg = 0
+                foreach ($d2 in $parityDeltas) {
+                    $mx = $nx + $d2.dx; $my = $ny + $d2.dy
+                    if ($mx -lt 0 -or $mx -ge $cellsW -or $my -lt 0 -or $my -ge $cellsH) { $nbg++ }
+                    elseif ($cellPal.GetValue($mx,$my) -eq 0) { $nbg++ }
+                }
+                if ($nbg -gt $bestNbg) { $bestNbg = $nbg; $bestNx = $nx; $bestNy = $ny }
+            }
+            if ($bestNx -ge 0) {
+                $cellPal.SetValue($colorIdx, $bestNx, $bestNy)
+                $autoOps += ("+({0},{1}) {2} (singleton extendido)" -f $bestNx, $bestNy, $labels[$colorIdx])
+                continue
+            }
+            # Sin vecinos bg disponibles (singleton enclavado). Cae al remove default abajo.
+        }
+        # CASO 2: count >= 3 impar, o singleton sin vecinos bg. REMOVER la mas exterior.
+        $sumX = 0.0; $sumY = 0.0; $n = 0
+        for ($cy=0;$cy -lt $cellsH;$cy++) {
+            for ($cx=0;$cx -lt $cellsW;$cx++) {
+                if ($cellPal.GetValue($cx,$cy) -eq $colorIdx) { $sumX += $cx; $sumY += $cy; $n++ }
+            }
+        }
+        $cenX = if ($n -gt 0) { $sumX / $n } else { 0.0 }
+        $cenY = if ($n -gt 0) { $sumY / $n } else { 0.0 }
+        $bestCx = -1; $bestCy = -1; $bestBg = -1; $bestDist2 = -1.0
+        for ($cy=0;$cy -lt $cellsH;$cy++) {
+            for ($cx=0;$cx -lt $cellsW;$cx++) {
+                if ($cellPal.GetValue($cx,$cy) -ne $colorIdx) { continue }
+                $bgN = 0
+                foreach ($d in $parityDeltas) {
+                    $nx = $cx + $d.dx; $ny = $cy + $d.dy
+                    if ($nx -lt 0 -or $nx -ge $cellsW -or $ny -lt 0 -or $ny -ge $cellsH) { $bgN++ }
+                    elseif ($cellPal.GetValue($nx,$ny) -eq 0) { $bgN++ }
+                }
+                $dx2 = ($cx - $cenX); $dy2 = ($cy - $cenY); $dist2 = $dx2*$dx2 + $dy2*$dy2
+                if ($bgN -gt $bestBg -or ($bgN -eq $bestBg -and $dist2 -gt $bestDist2)) {
+                    $bestBg = $bgN; $bestDist2 = $dist2; $bestCx = $cx; $bestCy = $cy
+                }
+            }
+        }
+        if ($bestCx -ge 0) {
+            $cellPal.SetValue(0, $bestCx, $bestCy)
+            $autoOps += ("-({0},{1}) {2} [bg-vecinos={3}]" -f $bestCx, $bestCy, $labels[$colorIdx], $bestBg)
+        }
+    }
+    if ($autoOps.Count -gt 0) {
+        Write-Output ("  Paridad auto-fix ({0} ops): {1}" -f $autoOps.Count, ($autoOps -join "; "))
+    }
+
+    # Find bbox of drawn cells (re-calculado despues del parity-fix)
     $minCx = $cellsW; $minCy = $cellsH; $maxCx = -1; $maxCy = -1
     for ($cy=0;$cy -lt $cellsH;$cy++) {
         for ($cx=0;$cx -lt $cellsW;$cx++) {
@@ -376,19 +454,68 @@ function Translate-Gridded {
         }
         if (-not $fixed) { $unresolvedSingletons += $sc }
     }
-    # Assign dirs (alternating) ONLY for chunks NOT touched by singleton-fix
-    $pcH=@{}; $pcV=@{}
+    # Assign dirs by "nearest exit" heuristic — cada chunk apunta al borde mas
+    # cercano del bbox. Evita el patron impasable mas comun: dos chunks en la
+    # misma fila/columna apuntandose entre si (A dir=Right + B dir=Left con A
+    # a la izquierda de B → ambos se bloquean mutuamente, ninguno sale).
+    # Con nearest-exit:
+    #   - Chunks en mitad izquierda del bbox: dir=Left (salen por la izquierda).
+    #   - Chunks en mitad derecha: dir=Right (salen por la derecha).
+    #   Resultado: misma fila con dos chunks → o ambos del mismo lado (mismo
+    #   dir, solvable por orden downstream-first), o uno de cada lado (apuntan
+    #   AWAY entre si, no se bloquean).
+    # Excepcion: chunks "stolen" por el anti-singleton ya tienen dir asignado
+    # por el vecino de quien robaron — no tocar.
+    $bbCenterX = ($minCx + $maxCx) / 2.0
+    $bbCenterY = ($minCy + $maxCy) / 2.0
+    # Aplicar nearest-exit a TODOS los chunks (incluidos los stolen). Los
+    # stolen quedaron orient=H/V segun cómo crecieron, pero su dir del robo
+    # puede crear pares face-to-face con otros chunks vecinos del mismo color.
+    # La emision JSON re-ordena las cells por dir y pone isEnd al final, asi
+    # que sobrescribir dir aca no rompe la chain.
     foreach ($c in $chunks) {
-        if ($c.stolen) { continue }  # already has dir from steal
+        $avgX = 0.0; $avgY = 0.0
+        foreach ($cell in $c.cells) { $avgX += $cell.x; $avgY += $cell.y }
+        $avgX /= $c.cells.Count; $avgY /= $c.cells.Count
         if ($c.orient -eq "H") {
-            if (-not $pcH.ContainsKey($c.color)) { $pcH[$c.color]=0 }
-            $i=$pcH[$c.color]; $pcH[$c.color]++
-            $c.dir = if ($i % 2 -eq 0) {3} else {2}
+            $c.dir = if ($avgX -lt $bbCenterX) { 2 } else { 3 }
         } else {
-            if (-not $pcV.ContainsKey($c.color)) { $pcV[$c.color]=0 }
-            $i=$pcV[$c.color]; $pcV[$c.color]++
-            $c.dir = if ($i % 2 -eq 0) {1} else {0}
+            $c.dir = if ($avgY -lt $bbCenterY) { 0 } else { 1 }
         }
+    }
+
+    # ===== Solvencia: detector de pares face-to-face (impasable) =====
+    # Para cada par de chunks (A, B), si A apunta hacia B y B apunta hacia A
+    # en el camino de salida → impasable (cycle de longitud 2). El criterio
+    # exit-mas-cercano deberia eliminar estos pares por diseno, pero verificamos
+    # post-hoc por las dudas (chunks stolen, asimetrias raras, etc.).
+    $facingPairs = @()
+    for ($i=0; $i -lt $chunks.Count; $i++) {
+        for ($j=$i+1; $j -lt $chunks.Count; $j++) {
+            $a = $chunks[$i]; $b = $chunks[$j]
+            $aMinX = ($a.cells | ForEach-Object x | Measure-Object -Min).Minimum
+            $aMaxX = ($a.cells | ForEach-Object x | Measure-Object -Max).Maximum
+            $aMinY = ($a.cells | ForEach-Object y | Measure-Object -Min).Minimum
+            $aMaxY = ($a.cells | ForEach-Object y | Measure-Object -Max).Maximum
+            $bMinX = ($b.cells | ForEach-Object x | Measure-Object -Min).Minimum
+            $bMaxX = ($b.cells | ForEach-Object x | Measure-Object -Max).Maximum
+            $bMinY = ($b.cells | ForEach-Object y | Measure-Object -Min).Minimum
+            $bMaxY = ($b.cells | ForEach-Object y | Measure-Object -Max).Maximum
+            # H-H face-off: misma fila (rectangulares 1xN) Y solapadas en y, A a izq con dir=R, B a der con dir=L
+            if ($a.orient -eq "H" -and $b.orient -eq "H" -and $aMinY -eq $bMinY) {
+                if ($a.dir -eq 3 -and $b.dir -eq 2 -and $aMaxX -lt $bMinX) { $facingPairs += "row ${aMinY}: H@$aMinX-$aMaxX R vs H@$bMinX-$bMaxX L" }
+                if ($b.dir -eq 3 -and $a.dir -eq 2 -and $bMaxX -lt $aMinX) { $facingPairs += "row ${aMinY}: H@$bMinX-$bMaxX R vs H@$aMinX-$aMaxX L" }
+            }
+            # V-V face-off: misma columna
+            if ($a.orient -eq "V" -and $b.orient -eq "V" -and $aMinX -eq $bMinX) {
+                if ($a.dir -eq 1 -and $b.dir -eq 0 -and $aMaxY -lt $bMinY) { $facingPairs += "col ${aMinX}: V@$aMinY-$aMaxY D vs V@$bMinY-$bMaxY U" }
+                if ($b.dir -eq 1 -and $a.dir -eq 0 -and $bMaxY -lt $aMinY) { $facingPairs += "col ${aMinX}: V@$bMinY-$bMaxY D vs V@$aMinY-$aMaxY U" }
+            }
+        }
+    }
+    if ($facingPairs.Count -gt 0) {
+        Write-Output ("  WARNING: {0} pares face-to-face (impasable, revisar a mano):" -f $facingPairs.Count)
+        foreach ($f in $facingPairs) { Write-Output "    $f" }
     }
 
     $pFloat = New-Object System.Collections.Generic.List[object]
