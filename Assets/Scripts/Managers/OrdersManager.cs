@@ -11,6 +11,10 @@ public class OrdersManager : MonoBehaviour
     [Header("Refs")]
     [SerializeField] private LevelFlowManager levelFlow;
     [SerializeField] private ConveyorBelt reserve;
+    [Tooltip("Transform padre del grupo de orders. Si esta seteado, Reposition mueve este transform (los Order hijos lo siguen) en vez de mover cada hijo individual. Mantiene la jerarquia coherente (el padre tracking el grupo).")]
+    [SerializeField] private Transform groupRoot;
+    [Tooltip("Transform que se reposiciona al borde exterior (lado opuesto al board) del grupo de orders tras Reposition. Sirve para que el belt y/o la camara lo encuadren.")]
+    [SerializeField] private Transform outerEdgeAnchor;
 
     public int OrderCount => orders != null ? orders.Count : 0;
 
@@ -185,10 +189,44 @@ public class OrdersManager : MonoBehaviour
         float deltaX = boardBounds.center.x - group.center.x;
         var offset = new Vector3(deltaX, 0f, deltaZ);
 
-        foreach (var o in orders)
+        if (groupRoot != null)
         {
-            if (o == null) continue;
-            o.transform.position += offset;
+            // Paso 1: recentrar el padre sobre el bbox de los hijos sin moverlos
+            // visualmente. Si la escena tiene el padre offseteado (ej. en (0,0,1.49)
+            // pero los hijos en z=5.32), esto sincroniza el gizmo del padre con
+            // el centro visual del grupo. Una sola vez por Reposition basta.
+            Vector3 desiredParentPos = new Vector3(group.center.x, groupRoot.position.y, group.center.z);
+            Vector3 parentDelta = desiredParentPos - groupRoot.position;
+            if (parentDelta.sqrMagnitude > 0.0001f)
+            {
+                int n = orders.Count;
+                var saved = new Vector3[n];
+                for (int i = 0; i < n; i++)
+                    if (orders[i] != null) saved[i] = orders[i].transform.position;
+                groupRoot.position = desiredParentPos;
+                for (int i = 0; i < n; i++)
+                    if (orders[i] != null) orders[i].transform.position = saved[i];
+            }
+
+            // Paso 2: mover el padre por el offset; los hijos siguen.
+            groupRoot.position += offset;
+        }
+        else
+        {
+            foreach (var o in orders)
+            {
+                if (o == null) continue;
+                o.transform.position += offset;
+            }
+        }
+
+        if (outerEdgeAnchor != null)
+        {
+            float outerZ = side > 0 ? group.max.z + deltaZ : group.min.z + deltaZ;
+            outerEdgeAnchor.position = new Vector3(
+                boardBounds.center.x,
+                outerEdgeAnchor.position.y,
+                outerZ);
         }
     }
 }
