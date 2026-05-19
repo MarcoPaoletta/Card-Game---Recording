@@ -143,6 +143,13 @@ public class ConveyorBelt : MonoBehaviour
         return presetIO.EditorTargetPreset != null ? presetIO.EditorTargetPreset : presetIO.DefaultPreset;
     }
 
+    /// <summary>
+    /// Preset activo expuesto publicamente. Permite que sistemas externos (ej.
+    /// BeltRepositionerManager) lean configuracion del preset actual (anchor
+    /// mode, capacity, etc.) tanto en play como en edit mode.
+    /// </summary>
+    public BeltPreset ActivePreset => ResolveActivePreset();
+
     // --- Slot pool ---
 
     void BuildSlotPool()

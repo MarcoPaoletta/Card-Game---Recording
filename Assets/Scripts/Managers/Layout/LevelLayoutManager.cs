@@ -51,11 +51,15 @@ public class LevelLayoutManager : MonoBehaviour
             ? boardResizer.GetBoardWorldBounds()
             : new Bounds();
 
+        Bounds ordersBounds = new Bounds(boardBounds.center, Vector3.zero);
         if (ordersManager != null)
+        {
             ordersManager.Reposition(boardBounds, ordersZGap);
+            ordersBounds = ordersManager.GetGroupRenderBounds();
+        }
 
         if (beltRepositioner != null)
-            beltRepositioner.Reposition(boardBounds, beltZGap);
+            beltRepositioner.Reposition(boardBounds, ordersBounds, beltZGap);
 
         if (cameraFitter != null)
             cameraFitter.FitToTargets(cameraTargets, cameraPadding);

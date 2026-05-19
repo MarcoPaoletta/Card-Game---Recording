@@ -15,4 +15,6 @@ public class BeltPreset : ScriptableObject
     public List<Vector3> localPoints = new List<Vector3>();
     [Tooltip("Cantidad maxima de cartas que pueden estar en la cinta a la vez. Cada slot del pool aloja una sola carta. Si <= 0, se calcula automaticamente segun cuanto entra en el path con el spacing actual.")]
     public int capacity = 0;
+    [Tooltip("Como BeltRepositionerManager calcula el 'borde interior' del belt (el que se pega al gap con las orders). CenterColumn = filtra renderers al rango X de las orders (default, bueno para arcos). NearestPortal = el portal mas cercano a las orders en Z. FullBounds = bbox completo.")]
+    public BeltAnchorMode anchorMode = BeltAnchorMode.CenterColumn;
 }
