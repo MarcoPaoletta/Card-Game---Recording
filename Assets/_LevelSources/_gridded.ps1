@@ -150,7 +150,7 @@ function Translate-Gridded {
     }
     $img.Dispose()
 
-    # Classify cells: bg vs drawn
+    # Classify cells: bg color (matches background sample) vs drawn
     $isBg = [bool[,]]::new($cellsW, $cellsH)
     for ($cy=0;$cy -lt $cellsH;$cy++) {
         for ($cx=0;$cx -lt $cellsW;$cx++) {
@@ -159,13 +159,46 @@ function Translate-Gridded {
         }
     }
 
-    # Build palette from drawn cells
+    # Flood-fill desde los bordes del grid usando SOLO celdas bg. Las visitadas
+    # son fondo "real" (afuera de la silueta). Las celdas con color bg NO
+    # visitadas estan encerradas por el outline (ej: blanco dentro del cuerpo
+    # de Sonic, los ojos del perro, la panza del zorro) y se emiten como
+    # celdas normales con el color bg.
+    $outsideBg = [bool[,]]::new($cellsW, $cellsH)
+    $queue = New-Object System.Collections.Generic.Queue[object]
+    $cw1 = $cellsW - 1; $ch1 = $cellsH - 1
+    for ($cx=0; $cx -lt $cellsW; $cx++) {
+        if ($isBg[$cx,0])    { $outsideBg[$cx,0] = $true;  $queue.Enqueue(@{x=$cx; y=0}) }
+        if ($isBg[$cx,$ch1]) { $outsideBg[$cx,$ch1] = $true; $queue.Enqueue(@{x=$cx; y=$ch1}) }
+    }
+    for ($cy=0; $cy -lt $cellsH; $cy++) {
+        if ($isBg[0,$cy])    { $outsideBg[0,$cy] = $true;  $queue.Enqueue(@{x=0; y=$cy}) }
+        if ($isBg[$cw1,$cy]) { $outsideBg[$cw1,$cy] = $true; $queue.Enqueue(@{x=$cw1; y=$cy}) }
+    }
+    $deltas = @(@{dx=1;dy=0}, @{dx=-1;dy=0}, @{dx=0;dy=1}, @{dx=0;dy=-1})
+    while ($queue.Count -gt 0) {
+        $p = $queue.Dequeue(); $x = $p.x; $y = $p.y
+        foreach ($d in $deltas) {
+            $nx = $x + $d.dx; $ny = $y + $d.dy
+            if ($nx -lt 0 -or $nx -ge $cellsW -or $ny -lt 0 -or $ny -ge $cellsH) { continue }
+            if (-not $isBg[$nx,$ny]) { continue }
+            if ($outsideBg[$nx,$ny]) { continue }
+            $outsideBg[$nx,$ny] = $true
+            $queue.Enqueue(@{x=$nx; y=$ny})
+        }
+    }
+
+    # Build palette: enclosed bg cells se incluyen usando el color bg como sample.
     $palette = @()
     $cellPal = [int[,]]::new($cellsW, $cellsH)
+    $enclosedBgCount = 0
     for ($cy=0;$cy -lt $cellsH;$cy++) {
         for ($cx=0;$cx -lt $cellsW;$cx++) {
-            if ($isBg.GetValue($cx,$cy)) { $cellPal[$cx,$cy] = 0; continue }
+            $cellIsBg = $isBg[$cx,$cy]
+            # Solo skipear el bg REAL (afuera del outline).
+            if ($cellIsBg -and $outsideBg[$cx,$cy]) { $cellPal[$cx,$cy] = 0; continue }
             $rgb = $samples[$cx,$cy]
+            if ($cellIsBg) { $rgb = $bg; $enclosedBgCount++ }
             $idx = -1
             for ($i=0;$i -lt $palette.Count;$i++) {
                 if ((ColorDist $rgb $palette[$i]) -lt $ClusterThresh) { $idx = $i; break }
@@ -173,6 +206,9 @@ function Translate-Gridded {
             if ($idx -eq -1) { $palette += ,$rgb; $idx = $palette.Count - 1 }
             $cellPal[$cx,$cy] = $idx + 1
         }
+    }
+    if ($enclosedBgCount -gt 0) {
+        Write-Output ("  Enclosed bg cells (interior, no skipeadas): {0}" -f $enclosedBgCount)
     }
     Write-Output ("  Palette ({0} colors):" -f $palette.Count)
     for ($i=0;$i -lt $palette.Count;$i++) {
@@ -434,3 +470,9 @@ Translate-Gridded -ImagePath "Assets\_LevelSources\honguito.png" -LevelIndex 5 -
 Translate-Gridded -ImagePath "Assets\_LevelSources\673fa4f744f3285ea575d3fa0c295fa8.jpg" -LevelIndex 6 -LevelName "Level 7 - Imagen1"
 Translate-Gridded -ImagePath "Assets\_LevelSources\Pixel-art-dune-licorne-magique-en-couleurs-vives.jpeg" -LevelIndex 7 -LevelName "Level 8 - Unicornio" -MaxGrid 12
 Translate-Gridded -ImagePath "Assets\_LevelSources\d2jncfn-5b1976d1-764e-4dcb-8e00-9d83331e027f.jpg" -LevelIndex 8 -LevelName "Level 9 - Imagen3" -ClusterThresh 3500
+
+Translate-Gridded -ImagePath "Assets\_LevelSources\Sonic.png" -LevelIndex 9 -LevelName "Level 10 - Sonic" -MaxGrid 30
+Translate-Gridded -ImagePath "Assets\_LevelSources\water-melon.png" -LevelIndex 10 -LevelName "Level 11 - Sandia" -MaxGrid 20
+Translate-Gridded -ImagePath "Assets\_LevelSources\Pixel-art-Creez-un-adorable-cochon-en-quelques-pixels.png" -LevelIndex 11 -LevelName "Level 12 - Chancho" -MaxGrid 20
+Translate-Gridded -ImagePath "Assets\_LevelSources\dog_cropped.png" -LevelIndex 12 -LevelName "Level 13 - Perro" -MaxGrid 25
+Translate-Gridded -ImagePath "Assets\_LevelSources\fox_cropped.png" -LevelIndex 13 -LevelName "Level 14 - Zorro" -MaxGrid 28
