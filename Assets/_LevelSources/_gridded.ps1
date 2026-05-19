@@ -35,8 +35,43 @@ function Detect-GridSpacing($img, $rowFrac = 0.05) {
     $diffs = @()
     for ($i=1; $i -lt $lines.Count; $i++) { $diffs += ($lines[$i] - $lines[$i-1]) }
     $cellSize = ($diffs | Measure-Object -Average).Average
-    # First line position (origin of grid in image coords)
     return @{ cellSize = $cellSize; gridOriginX = $lines[0]; gridOriginY = $null }
+}
+
+# Fallback: detect block size by uniformity analysis (8..maxGrid candidate grids)
+function Detect-BlockByUniformity($img, $maxGrid = 11, $thresh = 50) {
+    $w = $img.Width; $h = $img.Height
+    $minDim = [math]::Min($w, $h)
+    $bestGrid = 0; $bestScore = -1.0
+    for ($grid = 8; $grid -le $maxGrid; $grid++) {
+        $bs = $minDim / $grid
+        if ($bs -lt 6) { break }
+        $uniform = 0; $total = 0
+        for ($cy = 0; $cy -lt $grid; $cy++) {
+            for ($cx = 0; $cx -lt $grid; $cx++) {
+                $x0 = [int]($cx * $bs); $y0 = [int]($cy * $bs)
+                $x1 = [int](($cx+1) * $bs) - 1; $y1 = [int](($cy+1) * $bs) - 1
+                if ($x1 -ge $w -or $y1 -ge $h) { continue }
+                $pad = [math]::Max(2, [int]($bs * 0.3))
+                $xa = $x0+$pad; $xb = $x1-$pad; $ya = $y0+$pad; $yb = $y1-$pad
+                if ($xa -ge $xb -or $ya -ge $yb) { continue }
+                $c1 = $img.GetPixel($xa,$ya); $c2 = $img.GetPixel($xb,$ya)
+                $c3 = $img.GetPixel($xa,$yb); $c4 = $img.GetPixel($xb,$yb)
+                $cs = @($c1,$c2,$c3,$c4); $maxD = 0
+                for ($i=0;$i -lt 4;$i++) { for ($j=$i+1;$j -lt 4;$j++) {
+                    $d = [math]::Sqrt(($cs[$i].R-$cs[$j].R)*($cs[$i].R-$cs[$j].R)+($cs[$i].G-$cs[$j].G)*($cs[$i].G-$cs[$j].G)+($cs[$i].B-$cs[$j].B)*($cs[$i].B-$cs[$j].B))
+                    if ($d -gt $maxD) { $maxD = $d }
+                } }
+                if ($maxD -lt $thresh) { $uniform++ }
+                $total++
+            }
+        }
+        if ($total -eq 0) { continue }
+        $score = [double]$uniform / $total
+        if ($score -gt $bestScore) { $bestScore = $score; $bestGrid = $grid }
+    }
+    if ($bestGrid -eq 0) { return $null }
+    return @{ cellSize = $minDim / $bestGrid; gridOriginX = 0; gridOriginY = 0; score = $bestScore }
 }
 
 # ===== Process gridded image =====
@@ -52,7 +87,12 @@ function Translate-Gridded {
     Write-Output "Processing $ImagePath ($w x $h)"
 
     $info = Detect-GridSpacing $img -rowFrac 0.05
-    if ($null -eq $info) { Write-Output "  ERROR: no gridlines detected"; $img.Dispose(); return }
+    if ($null -eq $info) {
+        Write-Output "  No gridlines detected, falling back to uniformity analysis..."
+        $info = Detect-BlockByUniformity $img -maxGrid $MaxGrid
+        if ($null -eq $info) { Write-Output "  ERROR: cannot determine block size"; $img.Dispose(); return }
+        Write-Output ("  Uniformity-based: cellSize={0:F1}px score={1:P0}" -f $info.cellSize, $info.score)
+    }
     $cellSize = $info.cellSize
 
     # Detect grid Y origin by scanning a vertical column for gray gridline pixels
@@ -139,20 +179,50 @@ function Translate-Gridded {
         Write-Output ("    [{0}] #{1:X2}{2:X2}{3:X2}" -f ($i+1), $palette[$i][0],$palette[$i][1],$palette[$i][2])
     }
 
-    # Auto-label
+    # Auto-label via HSV (always produces a valid name, never "ColN")
     $labels = @("Sky")
     foreach ($rgb in $palette) {
         $r=$rgb[0]; $g=$rgb[1]; $b=$rgb[2]
-        $name = "Col$(($labels.Count))"
-        if ($r -lt 40 -and $g -lt 40 -and $b -lt 40) { $name = "Negro" }
-        elseif ($r -gt 215 -and $g -gt 215 -and $b -gt 215) { $name = "Blanco" }
-        elseif ($r -gt 180 -and $g -lt 80 -and $b -lt 80) { $name = "Rojo" }
-        elseif ($r -gt 180 -and $g -gt 180 -and $b -lt 180) { $name = "Amarillo" }
-        elseif ($r -lt 100 -and $g -gt 130 -and $b -lt 130) { $name = "Verde" }
-        elseif ($r -lt 130 -and $g -lt 160 -and $b -gt 160) { $name = "Azul" }
-        elseif ($r -gt 200 -and $g -gt 100 -and $g -lt 180 -and $b -lt 100) { $name = "Naranja" }
-        elseif ($r -gt 100 -and $g -lt 80 -and $b -lt 60) { $name = "Marron" }
-        elseif ($r -gt 140 -and $g -gt 140 -and $b -gt 140) { $name = "Gris" }
+        $r1 = $r / 255.0; $g1 = $g / 255.0; $b1 = $b / 255.0
+        $mx = [math]::Max($r1, [math]::Max($g1, $b1))
+        $mn = [math]::Min($r1, [math]::Min($g1, $b1))
+        $v = $mx
+        $s = if ($mx -eq 0) { 0 } else { ($mx - $mn) / $mx }
+        $h = 0.0
+        if ($mx -ne $mn) {
+            $d = $mx - $mn
+            if ($mx -eq $r1)     { $h = (($g1 - $b1) / $d) }
+            elseif ($mx -eq $g1) { $h = (($b1 - $r1) / $d) + 2 }
+            else                 { $h = (($r1 - $g1) / $d) + 4 }
+            $h = $h * 60.0
+            while ($h -lt 0) { $h += 360 }
+            while ($h -ge 360) { $h -= 360 }
+        }
+        $name = "Negro"
+        if ($v -lt 0.12) { $name = "Negro" }
+        elseif ($s -lt 0.12) {
+            if ($v -gt 0.88)     { $name = "Blanco" }
+            elseif ($v -gt 0.6)  { $name = "GrisClaro" }
+            elseif ($v -gt 0.3)  { $name = "Gris" }
+            else                 { $name = "GrisOscuro" }
+        }
+        else {
+            $name = if ($h -lt 15)       { "Rojo" }
+                    elseif ($h -lt 45)   { "Naranja" }
+                    elseif ($h -lt 65)   { "Amarillo" }
+                    elseif ($h -lt 90)   { "Lima" }
+                    elseif ($h -lt 150)  { "Verde" }
+                    elseif ($h -lt 200)  { "Cyan" }
+                    elseif ($h -lt 250)  { "Azul" }
+                    elseif ($h -lt 290)  { "Violeta" }
+                    elseif ($h -lt 330)  { "Magenta" }
+                    elseif ($h -lt 348)  { "Rosa" }
+                    else                 { "Rojo" }
+            if ($v -lt 0.35) { $name = $name + "Oscuro" }
+            elseif ($s -lt 0.4 -and $v -gt 0.75) { $name = $name + "Pastel" }
+            elseif ($name -eq "Naranja" -and $v -lt 0.55) { $name = "Marron" }
+            elseif ($name -eq "Rojo" -and $v -lt 0.5) { $name = "RojoOscuro" }
+        }
         $labels += $name
     }
     $counts = @{}
@@ -361,3 +431,6 @@ $($cellsJson -join ",`n")
 }
 
 Translate-Gridded -ImagePath "Assets\_LevelSources\honguito.png" -LevelIndex 5 -LevelName "Level 6 - Honguito"
+Translate-Gridded -ImagePath "Assets\_LevelSources\673fa4f744f3285ea575d3fa0c295fa8.jpg" -LevelIndex 6 -LevelName "Level 7 - Imagen1"
+Translate-Gridded -ImagePath "Assets\_LevelSources\Pixel-art-dune-licorne-magique-en-couleurs-vives.jpeg" -LevelIndex 7 -LevelName "Level 8 - Unicornio" -MaxGrid 12
+Translate-Gridded -ImagePath "Assets\_LevelSources\d2jncfn-5b1976d1-764e-4dcb-8e00-9d83331e027f.jpg" -LevelIndex 8 -LevelName "Level 9 - Imagen3" -ClusterThresh 3500
