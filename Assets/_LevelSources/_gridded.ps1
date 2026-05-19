@@ -225,8 +225,55 @@ function Translate-Gridded {
             $chunks.Add(@{ color=$col; orient=$orient; cells=$cells })
         }
     }
+    # ===== Post-process: eliminate singletons by stealing end-cells from same-color neighbor chunks =====
+    $unresolvedSingletons = @()
+    $singletons = @($chunks | Where-Object { $_.cells.Count -eq 1 })
+    foreach ($sc in $singletons) {
+        $cell = $sc.cells[0]
+        $x = $cell.x; $y = $cell.y; $col = $sc.color
+        $fixed = $false
+        $xp1 = $x + 1; $xm1 = $x - 1; $yp1 = $y + 1; $ym1 = $y - 1
+        $neighs = @( ,@($xp1,$y,3) )
+        $neighs += ,@($xm1,$y,2)
+        $neighs += ,@($x,$yp1,1)
+        $neighs += ,@($x,$ym1,0)
+        foreach ($n in $neighs) {
+            $nx = $n[0]; $ny = $n[1]; $newDir = $n[2]
+            # Find another chunk of same color containing (nx,ny), with >=3 cells
+            $target = $null
+            foreach ($c in $chunks) {
+                if ($c -eq $sc) { continue }
+                if ($c.color -ne $col) { continue }
+                if ($c.cells.Count -lt 3) { continue }
+                $first = $c.cells[0]; $last = $c.cells[$c.cells.Count - 1]
+                $isFirst = ($first.x -eq $nx -and $first.y -eq $ny)
+                $isLast  = ($last.x -eq $nx  -and $last.y -eq $ny)
+                if ($isFirst -or $isLast) { $target = $c; break }
+            }
+            if ($null -eq $target) { continue }
+            # Steal (nx,ny) from target
+            $newList = New-Object System.Collections.Generic.List[object]
+            foreach ($cc in $target.cells) {
+                if (-not ($cc.x -eq $nx -and $cc.y -eq $ny)) { $newList.Add($cc) }
+            }
+            $target.cells = $newList
+            # Convert singleton chunk into a 2-cell chunk (x,y) -> (nx,ny)
+            $newCells = New-Object System.Collections.Generic.List[object]
+            $newCells.Add(@{x=$x; y=$y})
+            $newCells.Add(@{x=$nx; y=$ny})
+            $sc.cells = $newCells
+            if ($x -eq $nx) { $sc.orient = "V" } else { $sc.orient = "H" }
+            $sc.dir = $newDir
+            $sc.stolen = $true
+            $fixed = $true
+            break
+        }
+        if (-not $fixed) { $unresolvedSingletons += $sc }
+    }
+    # Assign dirs (alternating) ONLY for chunks NOT touched by singleton-fix
     $pcH=@{}; $pcV=@{}
     foreach ($c in $chunks) {
+        if ($c.stolen) { continue }  # already has dir from steal
         if ($c.orient -eq "H") {
             if (-not $pcH.ContainsKey($c.color)) { $pcH[$c.color]=0 }
             $i=$pcH[$c.color]; $pcH[$c.color]++
@@ -245,12 +292,11 @@ function Translate-Gridded {
     }
     $cellsJson = New-Object System.Collections.Generic.List[string]
     foreach ($c in $chunks) {
-        $ordered = switch ($c.dir) {
-            0 { $c.cells | Sort-Object { -$_.y } }
-            1 { $c.cells | Sort-Object { $_.y } }
-            2 { $c.cells | Sort-Object { -$_.x } }
-            3 { $c.cells | Sort-Object { $_.x } }
-        }
+        $ordered = $null
+        if ($c.dir -eq 0)     { $ordered = @($c.cells | Sort-Object { -$_.y }) }
+        elseif ($c.dir -eq 1) { $ordered = @($c.cells | Sort-Object { $_.y }) }
+        elseif ($c.dir -eq 2) { $ordered = @($c.cells | Sort-Object { -$_.x }) }
+        elseif ($c.dir -eq 3) { $ordered = @($c.cells | Sort-Object { $_.x }) }
         $i=0; $nc=$ordered.Count
         foreach ($cell in $ordered) {
             $isEnd = ($i -eq $nc - 1)
@@ -302,9 +348,15 @@ $($cellsJson -join ",`n")
 "@
     [System.IO.File]::WriteAllText("Assets\Resources\Levels\level_$LevelIndex.json", $json)
     Write-Output ("  -> level_{0}.json ({1} cells, {2} chunks)" -f $LevelIndex, $cellsJson.Count, $chunks.Count)
-    $singletons = $chunks | Where-Object { $_.cells.Count -eq 1 }
-    if ($singletons.Count -gt 0) {
-        Write-Output ("  Note: {0} single-cell chunks" -f $singletons.Count)
+    $remaining = @($chunks | Where-Object { $_.cells.Count -eq 1 })
+    if ($remaining.Count -gt 0) {
+        Write-Output ("  Info: {0} single-cell chunks (con isEnd=true + direction, validos en juego):" -f $remaining.Count)
+        foreach ($sc in $remaining) {
+            $cell = $sc.cells[0]
+            $cx = $cell.x - $minCx
+            $cy = $cell.y - $minCy
+            Write-Output ("    ({0},{1}) {2} dir={3}" -f $cx, $cy, $Labels[$sc.color], $sc.dir)
+        }
     }
 }
 

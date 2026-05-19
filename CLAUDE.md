@@ -52,4 +52,33 @@ Antes de crear, modificar o explicar un nivel, **leé** [`Assets/Resources/Level
 - Colores en uso (con sus floats exactos).
 - Workflow para crear un nivel a mano.
 
-**Regla persistente:** cada vez que aprendas algo nuevo sobre construcción de niveles — un patrón, un gotcha, una decisión de diseño, un color nuevo, una corrección a una convención anterior — **agregalo a `LEVELS_GUIDE.md`** (en la sección "Lecciones aprendidas" o en la sección correspondiente). No lo dejes solo en memoria de sesión: el guide debe acumular el conocimiento del proyecto.
+### Auto-check obligatorio del guide (al final de cada respuesta sobre niveles)
+
+**Si en una respuesta toqué cualquiera de estos archivos:**
+- `Assets/Resources/Levels/level_*.json`
+- `Assets/_LevelSources/*` (imágenes fuente, scripts de pipeline)
+- Cualquier `.cs` relacionado a `LevelData`, `LevelBuilder`, `LevelStore`, `LevelValidator`, paleta, chunks
+- Cualquier `.md` que documente niveles
+
+**Antes de cerrar la respuesta DEBO**:
+
+1. Preguntarme: ¿hubo alguna **regla nueva**, **bug encontrado**, **decisión que contradice lo que dice el guide hoy**, **color nuevo**, **workflow que funcionó/no funcionó con un tipo de imagen**, o **el usuario me corrigió una asunción**?
+
+2. Si la respuesta es **sí**, actualizar `LEVELS_GUIDE.md` con `Edit` **en ESTE MISMO turno** (no en el próximo, no "después"). Si introduje un cambio que contradice lo viejo, **CORREGIR** lo viejo en el guide, no solo apendear al final.
+
+3. Terminar la respuesta con una línea de cierre:
+
+   > **Guide check**: actualizado — [resumen 1-línea del cambio] · *o* — sin cambios (regla X ya documentada)
+
+**Eventos que SIEMPRE requieren update del guide (no negociable)**:
+
+- Bug nuevo del pipeline (Unity, PowerShell, JsonUtility, etc).
+- Cambio en una regla numérica (max grid, paridad, etc).
+- Cambio de comportamiento del motor del juego (qué hace válido/inválido un chunk, una celda, etc).
+- Descubrimiento sobre un tipo de imagen (qué funciona, qué no).
+- Convención de naming (auto-label de colores, nombre de niveles).
+- El usuario me corrigió ("eso no es así") → la corrección va al guide.
+
+**En caso de duda, actualizá**. Es más barato sobre-documentar que sub-documentar — el guide es la única manera de que la próxima sesión arranque con el conocimiento acumulado.
+
+**Fallaste 5+ veces en esta regla durante una sola sesión** (mayo 2026): cada nueva lección requirió que el usuario te lo recordara. La regla está acá porque tu disciplina sola no alcanza. **No la salteés.**

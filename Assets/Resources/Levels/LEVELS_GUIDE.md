@@ -111,35 +111,45 @@ Si introducís un color nuevo, **registralo acá con el float exacto que termina
 
 ## Workflow: niveles desde imágenes (pixel art) — TRADUCCIÓN ESTRICTA
 
-**No interpretar la imagen. Traducir pixel-por-pixel.** El usuario pasa pixel-art upscaleado (ej. 1200×1200 con cada "pixel lógico" como un bloque NxN). El pipeline:
+**No interpretar la imagen. Traducir pixel-por-pixel.**
 
-1. **Detecta el block size natural** de la imagen analizando uniformidad de bloques candidatos (grids 8..20). Pick = grid con mayor uniformity con preferencia por grid chico (block grande).
-2. **Detecta background** del corner sample(s). Celdas con color cercano al bg se skipean.
-3. **Bbox del contenido**: snap a múltiplos del block size.
-4. **Sample center color** de cada pixel lógico → cluster en paleta del nivel (threshold euclidiana ajustable, default ~1500 squared).
-5. **Auto-label** colores (Rojo, Negro, Blanco, Verde, etc) por heurística HSV/RGB.
-6. **Auto-fix parity** removiendo celdas con menor `sameN` de colores impares.
-7. **Chunkear** con orientaciones mezcladas + alternancia de dirs.
-8. **Emit JSON** con `levelPalette` embebida y bbox top-left en (0,0).
+**Regla de tamaño actualizada (2026-05-19): max 11×11 celdas** (ancho y alto). Si una imagen tiene grid natural mayor, **avisar al usuario** que no entra y pedir una más chica o pre-procesada. No forzar downsample silencioso.
 
-El tamaño de la grilla **lo define la imagen** (típicamente 14×14 a 20×20). La regla anterior de "max 14×14 obligatorio" se relaja a "max 20×20" en el detector — si la imagen tiene más fidelidad, se respeta hasta ese tope. Para imágenes con block size natural mayor (más de 20 lógicos), la salida cae a 20 con menor fidelidad.
+**Regla de paridad actualizada (2026-05-19): NO auto-fix.** El pipeline reporta qué colores quedan con cantidad impar de celdas — el usuario los ajusta a mano en el builder cuando hace Save&Exit y el validador se queja. Tampoco se borran celdas para "limpiar". Fidelidad primero.
 
-**Cuándo NO usar el pipeline auto:**
-- Imagen sin pixel art puro (foto, ilustración pintada, etc.).
-- Block size detectado da uniformidad <85% → la imagen tiene anti-alias fuerte. Subir threshold o pre-procesar (posterize en GIMP).
-- El usuario explícitamente quiere una versión simplificada → hand-design.
+### Caso A — Imagen con grilla dibujada explícita (script `_gridded.ps1`)
 
-### Evitar chunks de 1 sola celda
+Es el formato **preferido**: PNG donde la imagen viene con líneas de grilla light-gray visibles, cada cuadradito es una celda lógica.
 
-**Un chunk de 1 sola celda se renderiza sin flecha** porque la única celda es `isEnd=true` (destino) y no hay celda "anterior" donde dibujar la dirección. Visualmente queda como una celda muda.
+Pipeline:
 
-Regla: **toda celda de un color X debe tener al menos 1 vecino 4-conectado del mismo color X** que no esté ya asignado a otro chunk al momento de procesarla. En la práctica eso significa:
+1. **Detecta el block size** scanneando una fila de la imagen y midiendo el spacing entre las líneas de grilla light-gray. Sin ambigüedad.
+2. **Detecta background** del primer cell de la grilla (típicamente blanco).
+3. **Para cada cell de la grilla**: samplea el centro (lejos de las líneas) → si está cerca del bg, skip; sino, agrega al cluster de paleta.
+4. **Cluster** de colores con threshold euclidean (default 800 squared, más estricto que en auto-downsample porque no hay anti-alias).
+5. **Auto-label** por heurística (Negro, Rojo, Amarillo, Verde, Azul, etc).
+6. **Bbox del dibujo**: cells no-bg → shift a (0,0). Si bbox > 11×11, **abortar con warning**.
+7. **Chunking H/V mezclado** + alternancia de dirs.
+8. **Post-pass anti-singleton**: para chunks de 1 cell, intentar robar la celda final de un chunk vecino del mismo color (≥3 cells) para formar un par 2-cell. Los que no se pueden fusionar quedan como singletons con `isEnd=true` + dir (válidos).
+9. **Report**: paridad por color (impares para que ajuste a mano), singletons restantes (informativo).
+10. **Emit JSON**: `levelPalette` embebida + bbox top-left (0,0) + indent 4 spaces.
 
-- Diseñar features (ojos, narices, manchas) como pares de celdas (1×2 vertical o 2×1 horizontal) en lugar de pixeles aislados.
-- Outlines mejor **rectangulares** que en curva diagonal: una curva tipo step (un pixel al lado del otro en diagonal) genera celdas aisladas porque no son 4-conectadas.
-- Si un outline tiene que cambiar de columna entre dos filas, asegurarse que el pixel "corner" esté conectado vertical u horizontalmente con un pixel del mismo color (no solo diagonal).
+### Caso B — Imagen pixel-art upscaleado sin grilla visible (script `_translate.ps1`)
 
-El pipeline detecta y avisa con `WARNING: N single-cell chunks (sin flecha)`. Si el output trae singletons, rediseñar.
+Usar solo si la imagen es **pixel art puro** (sin anti-aliasing, sin texto, sin marcas). Detecta el block size por análisis de uniformidad de bloques candidatos. Más frágil que el Caso A — preferir imágenes con grilla.
+
+**Cuándo NO usar pipeline auto en absoluto:**
+- Imagen sin pixel art puro (foto, ilustración pintada, JPG con anti-alias fuerte).
+- Imagen mayor a 11×11 cells lógicos → pedir versión más chica o hand-design simplificado.
+- El usuario explícitamente quiere una versión simplificada → hand-design (ver workflow más abajo).
+
+### Chunks de 1 sola celda — sí son válidos
+
+**Actualización 2026-05-19:** Un chunk de 1 sola celda **SÍ funciona en el juego**, siempre y cuando en el JSON tenga `isEnd: true` y un `dir` asignado. El game engine lo reconoce como una "cadena de longitud 1" con dirección.
+
+- **Bug histórico**: el pipeline emitía singletons con `isEnd: false` por culpa del `switch` de PowerShell que desempaqueta arrays de 1 elemento (`$ordered.Count` daba mal). Fix: usar `if/elseif` con `@(...)` explícito en lugar de `switch` para el ordenamiento.
+- Cuando un cell forma un chunk de 1 cell, el emisor debe asegurarse de marcar `isEnd: true`. Si el pipeline tira `WARNING: singletons sin head`, hay bug — chequear que la emisión esté seteando `isEnd` correctamente para chunks de 1 cell.
+- **Diseño**: no hace falta evitar singletons en el diseño. Si una imagen tiene un pixel rojo aislado, el JSON puede tener un cell rojo con `isEnd: true` + `dir` y funciona.
 
 ### Cuándo funciona el auto-downsample vs. cuándo hace falta hand-design
 
@@ -196,3 +206,9 @@ El builder muestra estos colores cuando el usuario clickea el toggle a "Paleta: 
 - **2026-05-18**: **Construir el map 14×14 con loops/`SetValue` directos** sobre un `[int[,]]`, no con string templates. Los string templates ("..133..." etc) son muy propensos a errores de conteo de chars al typear. Patrón: `$m = [int[,]]::new(14,14); $m.SetValue($v,$x,$y)` por celda o `for ($x=...) { $m.SetValue(...) }` por run.
 - **2026-05-18**: **Single-cell chunks no muestran flecha** porque la única celda es `isEnd=true`. Diseñar features como pares (1×2 vertical o 2×1 horizontal). Outlines preferentemente **rectangulares** (filas completas y columnas completas) en vez de curvas diagonales. Caso testigo: primer Pikachu tenía ojos como 1 pixel suelto (4,5) y (9,5) → singletons. Fix: ojos como 1×2 vertical (4,5)-(4,6) y (9,5)-(9,6). Tambien rediseñé head de Pikachu y AmongUs con outline rectangular (fila completa arriba/abajo, columnas completas izquierda/derecha) para evitar "step corners" diagonales que generaban outline cells aisladas en esquinas.
 - **2026-05-19**: **Traducción estricta pixel-por-pixel es la default para imágenes**. El usuario explicitó: "no quiero que trates de interpretar la imagen, traducila en pixeles para el json". El detector de block-size automático (script `_translate.ps1`) prueba grids 8..20 con uniformity check (corners de cada bloque dentro de threshold 50 RGB-Euclidean), pickea el grid con mayor score con preferencia por grid menor (block mayor). Paleta se deriva de los colores reales del source via clustering (threshold ~1500 squared). El grid del nivel = grid natural del source (típicamente 14..20). Singletons se preservan por fidelidad — el pipeline avisa pero no los borra. Caso testigo: la "pizza_2_2_16_16.jpg" que yo interpreté mal como "Pikachu" → con traducción estricta queda como pizza (5 colores: blanco, negro, marrón, amarillo, rojo) y silueta correcta. Lección: NUNCA renombrar interpretando el subject; usar el filename o pedir nombre al usuario.
+- **2026-05-19**: **Max grid 11×11** (downgrade desde 14×14 / 20×20). Si una imagen tiene block-size natural mayor (sale grid >11), avisar al usuario y NO forzar downsample silencioso — pedir imagen más chica o hand-design.
+- **2026-05-19**: **Sin auto-parity-fix**. El pipeline NO borra cells para emparejar colores. Reporta cuáles colores quedan impares (`NOTE: colores IMPARES`); el usuario los ajusta a mano cuando hace Save&Exit en el builder y el validador del juego se queja. Fidelidad primero, paridad después.
+- **2026-05-19**: **Imágenes con grilla dibujada explícita = formato preferido**. PNG donde el pixel-art viene con líneas light-gray entre celdas. El script `_gridded.ps1` detecta el spacing entre líneas (sin ambigüedad), samplea el centro de cada cuadradito, y emite el JSON 1:1. Mucho más confiable que `_translate.ps1` (que adivina block-size). Pedirle al usuario imágenes en este formato cuando sea posible.
+- **2026-05-19**: **Bug crítico: el `switch` de PowerShell desempaqueta arrays de 1 elemento**. Resultado: `$ordered = switch ($c.dir) { 0 { @($cells | Sort-Object ...) } ... }` cuando `$cells` tiene 1 elemento → `$ordered` queda como hashtable suelto (no array), `$ordered.Count` da el número de keys del hashtable (2), y `isEnd = ($i -eq $nc - 1)` para single-cells da `false`. Fix: usar `if/elseif` en lugar de `switch`. Síntoma: cells de 1-cell chunks emitidas con `isEnd: false` → invisibles en el level builder.
+- **2026-05-19**: **Single-cell chunks SÍ son válidos en el juego** si tienen `isEnd: true` + `dir`. El motor los reconoce como cadenas de longitud 1 con dirección. Pero hay que asegurarse que la emisión los marque correctamente (ver bug del switch arriba). Para minimizar singletons, el pipeline tiene un post-pass que intenta robar la cell-fin de chunks vecinos del mismo color (≥3 cells) y formar un par 2-cell. Los que no se pueden fusionar quedan como singletons válidos.
+- **2026-05-19**: **No interpretar el subject de la imagen**. Yo etiqueté una imagen como "Pikachu" cuando era una pizza, y como "casita" cuando era hand-design diferente al source. Reglas: usar filename del usuario, o pedir nombre, o usar nombre genérico ("Imagen 1"). Nunca asumir qué representa el dibujo.
